@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<!-- Launch full-screen (no Safari/Chrome chrome) when added to the Home Screen -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Noise Therapy">
+<link rel="manifest" href='data:application/manifest+json,{"name":"Tinnitus Noise Therapy","short_name":"Noise Therapy","display":"standalone","background_color":"%230d1117","theme_color":"%230d1117","start_url":"."}'>
+<title>Tinnitus Noise Therapy</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1f2630; --line:#2d333b;
+    --txt:#e6edf3; --muted:#8b949e; --accent:#3fb6ff; --accent2:#1f6feb;
+    --good:#3fb950; --warn:#d29922; --bad:#f85149; --max:48em;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%}
+  body{
+    background:var(--bg); color:var(--txt);
+    font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex; flex-direction:column; min-height:100vh; overscroll-behavior-y:none;
+  }
+  h1,h2,h3{margin:0 0 .5rem;font-weight:650;line-height:1.2}
+  h1{font-size:1.15rem} h2{font-size:1.05rem} h3{font-size:.95rem;color:var(--muted)}
+  p{margin:.4rem 0;color:var(--muted)}
+  a{color:var(--accent)}
+  .wrap{flex:1;width:100%;max-width:var(--max);margin:0 auto;padding:1rem 1rem 6.5rem}
+  header{padding:.9rem 1rem .6rem;border-bottom:1px solid var(--line);text-align:center}
+  header small{color:var(--muted);font-size:.72rem;letter-spacing:.04em;text-transform:uppercase}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:1rem;margin:0 0 1rem}
+  .row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
+  .row.col{flex-direction:column;align-items:stretch}
+  label.fld{display:flex;flex-direction:column;gap:.25rem;font-size:.82rem;color:var(--muted);flex:1 1 8rem}
+  input[type=number],input[type=text],input[type=date],select,textarea{
+    background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    border-radius:10px;padding:.6rem .7rem;font-size:1rem;width:100%;font-family:inherit
+  }
+  textarea{resize:vertical}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--accent2);outline-offset:0}
+  button{font:inherit;cursor:pointer;border:none;border-radius:12px;padding:.85rem 1rem;
+    background:var(--panel2);color:var(--txt);font-weight:600}
+  button:active{transform:translateY(1px)}
+  .btn-primary{background:var(--accent2);color:#fff}
+  .btn-stop{background:var(--bad);color:#fff;padding:1rem .6rem}
+  .btn-stop2{background:transparent;border:1px solid var(--bad);color:var(--bad);padding:1rem .6rem}
+  .btn-ghost{background:transparent;border:1px solid var(--line)}
+  .btn-good{background:var(--good);color:#04260f}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}
+  canvas{width:100%;display:block;background:var(--panel2);border-radius:10px;touch-action:none}
+  .pill{display:inline-block;padding:.15rem .55rem;border-radius:999px;font-size:.72rem;
+    background:var(--panel2);color:var(--muted);border:1px solid var(--line)}
+  .pill.live{background:var(--bad);color:#fff;border-color:var(--bad)}
+  .big{font-size:2.2rem;font-weight:700;font-variant-numeric:tabular-nums}
+  .muted{color:var(--muted)} .ctr{text-align:center}
+  .seg{display:flex;gap:.3rem}
+  .seg button{flex:1;padding:.55rem 0;background:var(--panel2);border:1px solid var(--line)}
+  .seg button.on{background:var(--accent2);color:#fff;border-color:var(--accent2)}
+  .colors button{border:2px solid transparent}
+  .colors button[data-c="white"]{border-color:#d6dee8}
+  .colors button[data-c="pink"]{border-color:#ff8fab}
+  .colors button[data-c="brown"]{border-color:#b5793f}
+  .colors button[data-c="green"]{border-color:#3fb950}
+  .colors button.on{outline:2px solid var(--accent);outline-offset:2px}
+  /* bottom nav */
+  nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--panel);
+    border-top:1px solid var(--line);padding:.35rem .25rem calc(.35rem + env(safe-area-inset-bottom));z-index:30}
+  nav button{flex:1;background:none;color:var(--muted);font-size:.7rem;font-weight:600;
+    display:flex;flex-direction:column;align-items:center;gap:.15rem;padding:.45rem 0;border-radius:10px}
+  nav button .ic{font-size:1.25rem;line-height:1}
+  nav button.on{color:var(--accent)}
+  .tab{display:none} .tab.on{display:block;animation:f .18s ease}
+  @keyframes f{from{opacity:.4}to{opacity:1}}
+  /* calendar */
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:.3rem}
+  .cal .dow{font-size:.68rem;color:var(--muted);text-align:center;padding:.2rem 0}
+  .cal .day{aspect-ratio:1;border:1px solid var(--line);border-radius:9px;background:var(--panel2);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:.8rem;position:relative;padding:0}
+  .cal .day.empty{visibility:hidden}
+  .cal .day.today{outline:2px solid var(--accent)}
+  .cal .day .mk{position:absolute;top:2px;right:3px;font-size:.6rem;line-height:1}
+  .cal .day .bl{position:absolute;bottom:2px;left:3px;font-size:.6rem}
+  .cal .day.logged.sev0{background:#14532d}
+  .cal .day.sev1{background:#22351f} .cal .day.sev2{background:#3a3f17}
+  .cal .day.sev3{background:#4a3414} .cal .day.sev4{background:#5a2718} .cal .day.sev5{background:#6e1f1c}
+  /* modal */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-end;
+    justify-content:center;z-index:50;padding:0}
+  .modal.on{display:flex}
+  .sheet{background:var(--panel);width:100%;max-width:var(--max);border-radius:18px 18px 0 0;
+    padding:1.1rem 1.1rem calc(1.5rem + env(safe-area-inset-bottom));max-height:92vh;overflow:auto;
+    animation:up .22s ease}
+  @keyframes up{from{transform:translateY(40px);opacity:.6}to{transform:none;opacity:1}}
+  .toggle{display:flex;align-items:center;gap:.6rem;padding:.5rem 0}
+  .switch{width:46px;height:26px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);
+    position:relative;flex:0 0 auto}
+  .switch::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;
+    background:var(--muted);transition:.15s}
+  .switch.on{background:var(--accent2);border-color:var(--accent2)}
+  .switch.on::after{left:22px;background:#fff}
+  .note{font-size:.78rem;color:var(--warn);background:#2a230f;border:1px solid #4d3f12;
+    border-radius:10px;padding:.6rem .7rem;margin:.6rem 0}
+  .ok{color:var(--good)} .danger{color:var(--bad)}
+  .disc{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:99;display:flex;
+    align-items:center;justify-content:center;padding:1.2rem}
+  .disc .box{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    max-width:30rem;padding:1.4rem;max-height:90vh;overflow:auto}
+  .disc h2{color:var(--bad)}
+  hr{border:none;border-top:1px solid var(--line);margin:1rem 0}
+  .kv{display:flex;justify-content:space-between;padding:.25rem 0;font-size:.9rem}
+  .kv span:last-child{color:var(--txt);font-variant-numeric:tabular-nums}
+  .scrim{overflow:hidden}
+  .sess{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:.55rem .65rem;margin:.4rem 0;font-size:.82rem}
+  .sess .srow{display:flex;justify-content:space-between;gap:.5rem}
+  .sess .srow span{color:var(--muted)}
+  .sess .smeta{color:var(--muted);font-size:.72rem;margin-top:.25rem}
+</style>
+</head>
+<body>
+
+<!-- ========== FIRST-RUN DISCLAIMER ========== -->
+<div class="disc" id="disc" style="display:none">
+  <div class="box">
+    <h2>⚠ Read before use</h2>
+    <p style="color:var(--txt)">This is a personal <b>self-tracking aid, not a medical device</b>.</p>
+    <ul style="color:var(--muted);font-size:.9rem;padding-left:1.1rem">
+      <li><b>Set your phone volume once</b> to a comfortable maximum, then don't touch it again. The app does all the volume changes — adjusting the phone too will break tracking.</li>
+      <li>Volume is shown as 0–100% of the app's output at your fixed phone volume — a consistent scale for tracking progress, not a real-world loudness measurement.</li>
+      <li>Follow the noise-exposure program and volume limits given by your audiologist. Do not exceed what they prescribed.</li>
+      <li>If pain, ringing, or hearing changes worsen, stop and contact your clinician.</li>
+    </ul>
+    <button class="btn-primary" style="width:100%;margin-top:.6rem" onclick="ackDisc()">I understand</button>
+  </div>
+</div>
+
+<header>
+  <small>Noise Therapy &amp; Symptom Tracker</small>
+  <h1 id="hdrTitle">Therapy</h1>
+</header>
+
+<div class="wrap">
+
+  <!-- ================= THERAPY ================= -->
+  <section class="tab on" id="tab-therapy">
+    <div class="note" id="volTip" style="display:flex;justify-content:space-between;align-items:flex-start;gap:.6rem">
+      <div>📱 <b>Set the phone volume once</b> to a comfortable max and don't change it again. The app handles the slow ramp — adjusting the phone too will throw off the graph and progress history.</div>
+      <button class="btn-ghost" style="padding:.2rem .5rem;font-size:.8rem" onclick="dismissVolTip()">Got it</button>
+    </div>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <h2 style="margin:0">Session</h2>
+        <span class="pill" id="statePill">idle</span>
+      </div>
+      <canvas id="graph" height="220" style="margin:.8rem 0"></canvas>
+      <div class="row" style="justify-content:space-between">
+        <div><div class="muted" style="font-size:.72rem">CURRENT</div><div class="big" id="curDb">—</div></div>
+        <div class="ctr"><div class="muted" style="font-size:.72rem">PEAK</div><div class="big" id="peakDb">—</div></div>
+        <div style="text-align:right"><div class="muted" style="font-size:.72rem">ELAPSED</div><div class="big" id="elapsed">0:00</div></div>
+      </div>
+      <div class="row col" style="margin-top:.8rem">
+        <button class="btn-primary" id="startBtn" onclick="startSession()">▶ Start</button>
+        <div class="grid2" id="stopRow" style="display:none">
+          <button class="btn-stop2" id="stopNowBtn" onclick="stopNow()">■ Stop now</button>
+          <button class="btn-stop" id="stopBtn" onclick="manualStop()">↓ Stop &amp; cool down</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Noise color</h2>
+      <div class="row colors" id="colorRow" style="gap:.4rem">
+        <button data-c="white">White</button>
+        <button data-c="pink">Pink</button>
+        <button data-c="brown">Brown</button>
+        <button data-c="green">Green</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Envelope</h2>
+      <p style="margin-top:0">Slowly ramp up, hold, then ease back down. All durations are in <b>whole minutes</b>.</p>
+      <div class="grid2">
+        <label class="fld">Start level (%)<input type="number" id="s_startPct" min="0" max="100" step="1" inputmode="numeric"></label>
+        <label class="fld">Target level (%)<input type="number" id="s_targetPct" min="0" max="100" step="1" inputmode="numeric"></label>
+        <label class="fld">Ramp-up (min)<input type="number" id="s_rampUp" min="1" step="1" inputmode="numeric"></label>
+        <label class="fld">Hold (min)<input type="number" id="s_hold" min="0" step="1" inputmode="numeric"></label>
+        <label class="fld">Ramp-down (min)<input type="number" id="s_rampDown" min="1" step="1" inputmode="numeric"></label>
+        <label class="fld">Cool-down fade (min)<input type="number" id="s_cooldown" min="1" step="1" inputmode="numeric"></label>
+      </div>
+      <p class="muted" id="totalLbl" style="font-size:.8rem"></p>
+    </div>
+  </section>
+
+  <!-- ================= LOG ================= -->
+  <section class="tab" id="tab-log">
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <button class="btn-ghost" onclick="calMove(-1)">‹</button>
+        <h2 id="calTitle" style="margin:0"></h2>
+        <button class="btn-ghost" onclick="calMove(1)">›</button>
+      </div>
+      <div class="cal" id="cal" style="margin-top:.8rem"></div>
+      <p class="muted" style="font-size:.75rem;margin-top:.7rem">
+        Tap a day to log pain / ringing / headache (0–5), a loud-noise trigger, or that your ears returned to baseline.
+        Green = a logged day with no symptoms; brighter red = worse. 🔔 = trigger day &nbsp; ✓ = back to baseline.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= ANALYTICS ================= -->
+  <section class="tab" id="tab-stats">
+    <div class="card">
+      <h2>Loudness progress</h2>
+      <p style="margin-top:0">Peak % reached each session over time — your main progress signal.</p>
+      <canvas id="chPeak" height="200"></canvas>
+    </div>
+    <div class="card">
+      <h2>Summary</h2>
+      <div id="summary"></div>
+    </div>
+    <div class="card">
+      <h2>Sessions per week</h2>
+      <canvas id="chWeek" height="170"></canvas>
+    </div>
+    <div class="card">
+      <h2>Symptoms over time</h2>
+      <p style="margin-top:0;font-size:.82rem">
+        <span style="color:#f85149">●</span> Pain
+        <span style="color:#d29922">●</span> Ringing
+        <span style="color:#3fb6ff">●</span> Headache
+        &nbsp;·&nbsp; 🔔 trigger &nbsp; ✓ baseline
+      </p>
+      <canvas id="chSym" height="200"></canvas>
+    </div>
+  </section>
+
+  <!-- ================= SETTINGS ================= -->
+  <section class="tab" id="tab-settings">
+    <div class="card">
+      <h2>How levels work</h2>
+      <p style="margin-top:0">Volume is shown as <b>0–100%</b>. It's scaled by perceived
+      loudness, so a slow ramp feels gradual the whole way up. 100% is the app's full
+      output at the phone volume you've set.</p>
+      <p>Set the phone volume once and keep it fixed. With the same headphones and a
+      fixed phone volume, % is consistent session to session — so it's a reliable way
+      to track progress over time.</p>
+    </div>
+
+    <div class="card">
+      <h2>Data</h2>
+      <p style="margin-top:0">Everything is stored only in this browser. Back up regularly.</p>
+      <div class="grid2">
+        <button class="btn-good" onclick="exportData()">⬆ Export / Share</button>
+        <button class="btn-ghost" onclick="document.getElementById('imp').click()">⬇ Import file</button>
+      </div>
+      <div class="grid2" style="margin-top:.5rem">
+        <button class="btn-ghost" onclick="copyBackup()">⧉ Copy backup</button>
+        <button class="btn-ghost" onclick="openRestore()">⌨ Paste &amp; restore</button>
+      </div>
+      <input type="file" id="imp" accept=".json,application/json,text/plain" style="display:none" onchange="importData(event)">
+      <button class="btn-ghost danger" style="width:100%;margin-top:.6rem" onclick="wipeData()">Erase all data</button>
+      <div class="note">On iPhone, don't try to <i>open</i> the saved file — iOS has no app for <code>.json</code>, that's normal. To move data to another device, use <b>Copy backup</b> here and <b>Paste &amp; restore</b> there. Or <b>Export / Share</b> → Save to Files, then later <b>Import file</b> and pick it.</div>
+    </div>
+
+    <div class="card">
+      <h2>Phone tips</h2>
+      <ul class="muted" style="font-size:.85rem;padding-left:1.1rem">
+        <li>On iPhone, turn the silent/ring switch <b>off silent</b> or audio may not play.</li>
+        <li>The app keeps the screen awake during a session where supported; don't lock the phone manually mid-session or audio may stop.</li>
+        <li>Add to Home Screen for a full-screen, app-like launch.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2 class="danger">Medical disclaimer</h2>
+      <p>This is a personal self-tracking aid, <b>not a medical device</b>. The 0–100%
+      scale is relative to the app's output at your phone volume, not a real-world
+      loudness measurement. Follow your audiologist's prescribed program and volume
+      limits. If symptoms worsen, stop and consult your clinician.</p>
+    </div>
+  </section>
+
+</div>
+
+<nav>
+  <button class="on" data-tab="therapy" onclick="go('therapy')"><span class="ic">🎚</span>Therapy</button>
+  <button data-tab="log" onclick="go('log')"><span class="ic">🗓</span>Log</button>
+  <button data-tab="stats" onclick="go('stats')"><span class="ic">📈</span>Analytics</button>
+  <button data-tab="settings" onclick="go('settings')"><span class="ic">⚙️</span>Settings</button>
+</nav>
+
+<!-- ========== DAY ENTRY MODAL ========== -->
+<div class="modal" id="dayModal">
+  <div class="sheet">
+    <div class="row" style="justify-content:space-between">
+      <h2 id="dmTitle" style="margin:0">Day</h2>
+      <button class="btn-ghost" onclick="closeDay()">✕</button>
+    </div>
+
+    <h3 style="margin-top:1rem">Pain</h3>
+    <div class="seg" id="seg-pain"></div>
+    <h3 style="margin-top:.9rem">Ringing</h3>
+    <div class="seg" id="seg-ringing"></div>
+    <h3 style="margin-top:.9rem">Headache</h3>
+    <div class="seg" id="seg-headache"></div>
+
+    <hr>
+    <div class="toggle">
+      <div class="switch" id="sw-trig" onclick="toggleSw('sw-trig')"></div>
+      <div>A loud noise set off the tinnitus today</div>
+    </div>
+    <label class="fld" id="trigNoteWrap" style="display:none">What happened?
+      <input type="text" id="d_trigNote" placeholder="e.g. concert, power tool…"></label>
+
+    <div class="toggle">
+      <div class="switch" id="sw-base" onclick="toggleSw('sw-base')"></div>
+      <div>Ears returned to baseline today</div>
+    </div>
+    <p class="muted" id="baseInfo" style="font-size:.8rem;margin:0 0 .4rem"></p>
+
+    <label class="fld" style="margin-top:.6rem">Notes
+      <input type="text" id="d_notes" placeholder="anything else"></label>
+
+    <div id="daySessions"></div>
+
+    <div class="grid2" style="margin-top:1rem">
+      <button class="btn-ghost danger" onclick="clearDay()">Clear day</button>
+      <button class="btn-primary" onclick="saveDay()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== LOG-SESSION PROMPT ========== -->
+<div class="modal" id="logModal">
+  <div class="sheet">
+    <h2 style="margin:0 0 .3rem">Log this session?</h2>
+    <p id="logSummary" class="muted" style="margin:.2rem 0 0"></p>
+    <div id="logChoice">
+      <div class="grid2" style="margin-top:1.1rem">
+        <button class="btn-ghost danger" onclick="askDiscard()">Discard</button>
+        <button class="btn-primary" onclick="resolveLog(true)">Save to log</button>
+      </div>
+      <p class="muted" style="font-size:.75rem;margin:.7rem 0 0">Discarded sessions don't affect your log or analytics — handy when you're just testing settings.</p>
+    </div>
+    <div id="discardConfirm" style="display:none;margin-top:1.1rem">
+      <p class="danger" style="margin:0 0 .5rem;font-size:.9rem">Discarding permanently deletes this session. Type <b>yes</b> to confirm.</p>
+      <input type="text" id="discardInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="type yes" oninput="discardTyped()">
+      <div class="grid2" style="margin-top:.8rem">
+        <button class="btn-ghost" onclick="cancelDiscard()">Cancel</button>
+        <button class="btn-ghost danger" id="discardGo" onclick="resolveLog(false)" disabled style="opacity:.45">Discard</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== PASTE & RESTORE ========== -->
+<div class="modal" id="restoreModal">
+  <div class="sheet">
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0">Paste &amp; restore</h2>
+      <button class="btn-ghost" onclick="closeRestore()">✕</button>
+    </div>
+    <p class="muted" style="font-size:.82rem;margin:.4rem 0 .6rem">Paste backup text (from <b>Copy backup</b>) and restore. This replaces ALL current data on this device.</p>
+    <textarea id="restoreText" rows="6" placeholder="paste backup text here" autocapitalize="off" spellcheck="false"></textarea>
+    <button class="btn-primary" style="width:100%;margin-top:.7rem" onclick="restoreFromText()">Restore</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   STORAGE
+============================================================ */
+const KEY="tinnitus-therapy-v1";
+const defaults=()=>({
+  version:2,
+  disclaimerAck:false,
+  volTipAck:false,
+  settings:{color:"green",startPct:5,targetPct:20,rampUp:60,hold:60,rampDown:60,cooldown:60},
+  sessions:[],
+  symptomLog:{}                     // "YYYY-MM-DD": {pain,ringing,headache,trigger:{happened,note},baseline:{returned,returnedDate},notes}
+});
+let DB=load();
+function load(){
+  try{
+    const r=JSON.parse(localStorage.getItem(KEY));
+    if(!r) return defaults();
+    const d=defaults();
+    return {...d,...r,settings:{...d.settings,...(r.settings||{})}};
+  }catch(e){return defaults();}
+}
+function save(){ localStorage.setItem(KEY,JSON.stringify(DB)); }
+
+/* ============================================================
+   PERCENT (0–100) <-> GAIN
+   % is mapped perceptually: it spans a dB range so the slow ramp
+   feels gradual. 100% = full output (gain 1); 0% = silent.
+============================================================ */
+const PCT_DB_FLOOR=-60;             // dB below full at 0%
+function gainFromPct(p){
+  p=Math.max(0,Math.min(100,p));
+  if(p<=0) return 0;
+  return Math.min(1, Math.pow(10, (PCT_DB_FLOOR*(1-p/100))/20));
+}
+const fmtPct=v=> (isFinite(v)? Math.round(v) : "—")+"%";
+const fmtTime=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");};
+
+/* ============================================================
+   AUDIO ENGINE
+============================================================ */
+let actx=null, buffers={}, src=null, gainNode=null, calSrc=null, calGain=null;
+function ensureCtx(){
+  if(!actx){
+    actx=new (window.AudioContext||window.webkitAudioContext)();
+  }
+  if(actx.state==="suspended") actx.resume();
+  return actx;
+}
+function rmsNormalize(data,target=0.2){
+  let s=0; for(let i=0;i<data.length;i++) s+=data[i]*data[i];
+  const rms=Math.sqrt(s/data.length)||1; const k=target/rms;
+  for(let i=0;i<data.length;i++) data[i]=Math.max(-1,Math.min(1,data[i]*k));
+}
+async function buildBuffers(){
+  const ctx=ensureCtx(), sr=ctx.sampleRate, len=sr*5;
+  // WHITE
+  const white=new Float32Array(len);
+  for(let i=0;i<len;i++) white[i]=Math.random()*2-1;
+  // PINK (Paul Kellet)
+  const pink=new Float32Array(len);
+  let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+  for(let i=0;i<len;i++){
+    const w=white[i];
+    b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759;
+    b2=0.96900*b2+w*0.1538520; b3=0.86650*b3+w*0.3104856;
+    b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
+    pink[i]=b0+b1+b2+b3+b4+b5+b6+w*0.5362; b6=w*0.115926;
+  }
+  // BROWN
+  const brown=new Float32Array(len); let last=0;
+  for(let i=0;i<len;i++){ last=(last+0.02*white[i])/1.02; brown[i]=last*3.5; }
+  // GREEN = white through bandpass ~500Hz (rendered offline)
+  let green;
+  try{
+    const off=new OfflineAudioContext(1,len,sr);
+    const wb=off.createBuffer(1,len,sr); wb.getChannelData(0).set(white);
+    const ws=off.createBufferSource(); ws.buffer=wb;
+    const bp=off.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=500; bp.Q.value=1.5;
+    ws.connect(bp).connect(off.destination); ws.start();
+    const rendered=await off.startRendering();
+    green=rendered.getChannelData(0).slice();
+  }catch(e){ green=pink.slice(); }
+  const mk=arr=>{ const b=ctx.createBuffer(1,len,sr); rmsNormalize(arr); b.getChannelData(0).set(arr); b.dataArr=arr; return b; };
+  buffers={ white:mk(white), pink:mk(pink), brown:mk(brown), green:mk(green) };
+}
+function startNoise(color){
+  src=actx.createBufferSource(); src.buffer=buffers[color]; src.loop=true;
+  gainNode=actx.createGain(); gainNode.gain.value=0;
+  src.connect(gainNode).connect(actx.destination); src.start();
+}
+function stopNoise(){ try{src&&src.stop();}catch(e){} src=null; gainNode=null; }
+// Swap the noise buffer live without disturbing the gain envelope.
+function swapNoise(color){
+  if(!src||!gainNode||!buffers[color]) return;
+  const old=src;
+  const n=actx.createBufferSource(); n.buffer=buffers[color]; n.loop=true;
+  n.connect(gainNode); n.start();
+  src=n;
+  try{ old.stop(actx.currentTime+0.08); }catch(e){}   // brief overlap to soften the switch
+}
+function setColor(c){
+  DB.settings.color=c; save();
+  document.querySelectorAll("#colorRow button").forEach(b=>b.classList.toggle("on",b.dataset.c===c));
+  if(sess&&!sess.done){ sess.color=c; swapNoise(c); }   // live change mid-session
+}
+
+/* ---- envelope schedule (linear in % loudness) ---- */
+function plannedPctAt(t){
+  const s=DB.settings;
+  if(t<=0) return s.startPct;
+  if(t<s.rampUp) return s.startPct+(s.targetPct-s.startPct)*(t/s.rampUp);
+  if(t<s.rampUp+s.hold) return s.targetPct;
+  const td=t-s.rampUp-s.hold;
+  if(td<s.rampDown) return s.targetPct-(s.targetPct-s.startPct)*(td/s.rampDown);
+  return s.startPct;
+}
+const totalPlanned=()=>{const s=DB.settings;return s.rampUp+s.hold+s.rampDown;};
+const TARGET_GLIDE=5;                    // seconds to transition after a live target change
+// Reliable model of the % we are actually producing, independent of reading
+// AudioParam.value mid-automation (which is inconsistent across browsers).
+// `sess.tr` (set when the target is changed mid-session) blends from the level
+// at the moment of change into the new planned curve over TARGET_GLIDE seconds.
+function modelLevel(t){
+  if(sess&&sess.stopped){
+    const cd=Math.max(1,DB.settings.cooldown);
+    const f=Math.min(1,Math.max(0,(t-sess.stopAt)/cd));
+    return sess.stopPct*(1-f);          // ramp down to 0%
+  }
+  const p=plannedPctAt(t);
+  const tr=sess&&sess.tr;
+  if(tr && t>=tr.at && t<tr.at+tr.dur){
+    const f=(t-tr.at)/tr.dur;
+    return tr.from+(p-tr.from)*f;
+  }
+  return p;
+}
+// (Re)schedule the audio gain to follow modelLevel() from now to the end.
+// Called on start, on a live target change, and on manual cool-down stop.
+function rescheduleAudio(){
+  if(!sess||sess.done||!gainNode) return;
+  const tNow=actx.currentTime-sess.t0;
+  const endT=sess.stopped?sess.coolEnd:sess.plannedTotal;
+  const dur=Math.max(0.05,endT-tNow);
+  const N=Math.min(4000,Math.max(2,Math.round(dur*8)));
+  const curve=new Float32Array(N);
+  for(let i=0;i<N;i++) curve[i]=Math.max(0,gainFromPct(modelLevel(tNow+dur*i/(N-1))));
+  const now=actx.currentTime;
+  gainNode.gain.cancelScheduledValues(now);
+  gainNode.gain.setValueAtTime(curve[0],now);
+  gainNode.gain.setValueCurveAtTime(curve,now,dur);
+}
+// Live target change: glide from the level we were AT (captured before the new
+// target was applied) into the new plan over TARGET_GLIDE seconds.
+function startTargetTransition(fromLevel){
+  if(!sess||sess.done||sess.stopped) return;
+  const tNow=actx.currentTime-sess.t0;
+  sess.tr={ at:tNow, dur:TARGET_GLIDE, from:fromLevel };
+  rescheduleAudio();
+  drawGraph(sess,false);
+}
+
+/* ============================================================
+   SESSION STATE MACHINE
+============================================================ */
+let sess=null; // {color,startWall,t0,phase,peakPct,timeAtTarget,lastTick,raf,done,stopped,actualPts}
+let wakeLock=null;
+async function lockScreen(){ try{ if("wakeLock" in navigator) wakeLock=await navigator.wakeLock.request("screen"); }catch(e){} }
+function releaseScreen(){ try{ wakeLock&&wakeLock.release(); }catch(e){} wakeLock=null; }
+
+async function startSession(){
+  if(sess) return;
+  ensureCtx();
+  if(!Object.keys(buffers).length){ document.getElementById("startBtn").textContent="Loading…"; await buildBuffers(); document.getElementById("startBtn").textContent="▶ Start"; }
+  const color=DB.settings.color;
+  startNoise(color);
+  await lockScreen();
+  sess={ color, startWall:Date.now(), t0:actx.currentTime, phase:"running",
+          peakPct:-Infinity, timeAtTarget:0, lastTick:actx.currentTime, done:false,
+          stopped:false, tr:null, actualPts:[], plannedTotal:totalPlanned() };
+  rescheduleAudio();
+  showStopButtons(true);
+  setState("ramping up");
+  tick();
+}
+function showStopButtons(on){
+  document.getElementById("startBtn").style.display=on?"none":"block";
+  document.getElementById("stopRow").style.display=on?"grid":"none";
+}
+let pendingSession=null;
+function endSession(stopped,immediate){
+  if(!sess||sess.done) return;
+  sess.done=true;
+  cancelAnimationFrame(sess.raf);
+  const durSec=(actx?actx.currentTime:0)-sess.t0;
+  stopNoise(); releaseScreen();
+  const s=DB.settings;
+  pendingSession={
+    id:Date.now(), startTs:sess.startWall, endTs:Date.now(), color:sess.color,
+    targetPct:s.targetPct,
+    peakPct:Math.round(sess.peakPct===-Infinity?s.startPct:sess.peakPct),
+    timeAtTargetSec:Math.round(sess.timeAtTarget),
+    actualDurationSec:Math.round(durSec),
+    completed:!stopped, stoppedManually:!!stopped,
+    settings:{ color:sess.color, startPct:s.startPct, targetPct:s.targetPct,
+               rampUp:s.rampUp, hold:s.hold, rampDown:s.rampDown, cooldown:s.cooldown }
+  };
+  showStopButtons(false);
+  setState(immediate?"stopped":(stopped?"cooled down":"complete"));
+  const fin=sess; sess=null;
+  setTimeout(()=>{ if(!sess){ drawGraph(fin,true); setState("idle"); } },1200);
+  showLogPrompt();
+}
+function showLogPrompt(){
+  const p=pendingSession; if(!p) return;
+  const dur=fmtTime(p.actualDurationSec);
+  const how=p.completed?"completed":(p.stoppedManually?"stopped early":"ended");
+  document.getElementById("logSummary").innerHTML=
+    `<b>${p.color}</b> noise · peaked <b>${fmtPct(p.peakPct)}</b> · `+
+    `${dur} · ${how}`;
+  document.getElementById("logChoice").style.display="block";
+  document.getElementById("discardConfirm").style.display="none";
+  document.getElementById("discardInput").value="";
+  document.getElementById("logModal").classList.add("on");
+  document.body.classList.add("scrim");
+}
+function askDiscard(){
+  document.getElementById("logChoice").style.display="none";
+  document.getElementById("discardConfirm").style.display="block";
+  const i=document.getElementById("discardInput"); i.value=""; discardTyped(); i.focus();
+}
+function cancelDiscard(){
+  document.getElementById("discardConfirm").style.display="none";
+  document.getElementById("logChoice").style.display="block";
+}
+function discardTyped(){
+  const ok=document.getElementById("discardInput").value.trim().toLowerCase()==="yes";
+  const b=document.getElementById("discardGo");
+  b.disabled=!ok; b.style.opacity=ok?"1":".45";
+}
+function resolveLog(saveIt){
+  // Discard requires the typed "yes" confirmation
+  if(!saveIt && document.getElementById("discardInput").value.trim().toLowerCase()!=="yes"){
+    askDiscard(); return;
+  }
+  document.getElementById("logModal").classList.remove("on");
+  document.body.classList.remove("scrim");
+  if(saveIt && pendingSession){ DB.sessions.push(pendingSession); save(); renderStats(); }
+  pendingSession=null;
+}
+// Gradual stop: glide down to silence over the cool-down time.
+function manualStop(){
+  if(!sess||sess.done||sess.stopped) return;
+  const tNow=actx.currentTime-sess.t0;
+  const cur=modelLevel(tNow);            // capture BEFORE marking stopped
+  sess.stopped=true; sess.stopAt=tNow; sess.stopPct=cur;
+  sess.coolEnd=tNow+Math.max(1,DB.settings.cooldown);
+  setState("cooling down");
+  rescheduleAudio();
+}
+// Immediate stop: cut audio and end the session right now.
+function stopNow(){
+  if(!sess||sess.done) return;
+  endSession(true,true);
+}
+function tick(){
+  if(!sess||sess.done) return;
+  const t=actx.currentTime - sess.t0;
+  const lvl=modelLevel(t);
+  const dt=actx.currentTime - sess.lastTick; sess.lastTick=actx.currentTime;
+  if(lvl>sess.peakPct) sess.peakPct=lvl;
+  if(lvl>=DB.settings.targetPct-0.5) sess.timeAtTarget+=dt;
+  sess.actualPts.push([t,lvl]);
+  // UI
+  document.getElementById("curDb").textContent=fmtPct(lvl);
+  document.getElementById("peakDb").textContent=fmtPct(sess.peakPct);
+  document.getElementById("elapsed").textContent=fmtTime(t);
+  if(!sess.stopped){
+    const s=DB.settings;
+    if(t<s.rampUp) setState("ramping up");
+    else if(t<s.rampUp+s.hold) setState("holding");
+    else if(t<sess.plannedTotal) setState("ramping down");
+  }
+  drawGraph(sess,false);
+  // end conditions
+  if(sess.stopped && t>=sess.coolEnd){ endSession(true); return; }
+  if(!sess.stopped && t>=sess.plannedTotal+0.15){ endSession(false); return; }
+  sess.raf=requestAnimationFrame(tick);
+}
+function setState(s){
+  const p=document.getElementById("statePill");
+  p.textContent=s;
+  p.classList.toggle("live", /ramp|hold|cool/.test(s));
+}
+
+/* ============================================================
+   GRAPH
+============================================================ */
+function fitCanvas(c){
+  // Capture the intended logical height ONCE: setting c.height reflects back to
+  // the height attribute, so re-reading it would compound by dpr every redraw.
+  if(c._h==null) c._h=(c.getAttribute("height")*1)||200;
+  const dpr=window.devicePixelRatio||1, h=c._h, w=c.clientWidth||c.parentNode.clientWidth;
+  c.style.height=h+"px";                        // pin display height (CSS sets width:100% only)
+  const bw=Math.round(w*dpr), bh=Math.round(h*dpr);
+  if(c.width!==bw||c.height!==bh){ c.width=bw; c.height=bh; }
+  const x=c.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0); return {x,w,h};
+}
+function drawGraph(state,finished){
+  const c=document.getElementById("graph"); const {x,w,h}=fitCanvas(c);
+  const padL=38,padB=24,padT=10,padR=8;
+  const gw=w-padL-padR, gh=h-padT-padB;
+  const lo=0, hi=100;
+  let span= state? Math.max(state.plannedTotal, (state.stopped?state.coolEnd:0), 1) : Math.max(totalPlanned(),1);
+  const X=t=>padL+gw*(t/span);
+  const Y=d=>padT+gh*(1-(d-lo)/(hi-lo));
+  x.clearRect(0,0,w,h);
+  // grid + y labels (0–100%)
+  x.strokeStyle="#2d333b"; x.fillStyle="#8b949e"; x.font="11px sans-serif"; x.lineWidth=1;
+  for(let d=lo; d<=hi; d+=20){
+    const yy=Y(d); x.beginPath(); x.moveTo(padL,yy); x.lineTo(w-padR,yy); x.stroke();
+    x.fillText(d, 6, yy+4);
+  }
+  // x labels (first left-aligned, last right-aligned so they never clip)
+  const ticks=4;
+  for(let i=0;i<=ticks;i++){
+    const tt=span*i/ticks;
+    x.textAlign = i===0?"left" : i===ticks?"right" : "center";
+    x.fillText(fmtTime(tt), X(tt), h-7);
+  }
+  x.textAlign="right";
+  x.fillText("%", w-padR, padT-1);
+  x.textAlign="left";
+  // planned envelope
+  x.strokeStyle="#3b5772"; x.lineWidth=2; x.beginPath();
+  for(let i=0;i<=120;i++){ const tt=totalPlanned()*i/120; const px=X(tt),py=Y(plannedPctAt(tt)); i?x.lineTo(px,py):x.moveTo(px,py); }
+  x.stroke();
+  // actual line
+  if(state&&state.actualPts.length){
+    x.strokeStyle="#3fb6ff"; x.lineWidth=2.5; x.beginPath();
+    state.actualPts.forEach((p,i)=>{ const px=X(p[0]),py=Y(p[1]); i?x.lineTo(px,py):x.moveTo(px,py); });
+    x.stroke();
+    const last=state.actualPts[state.actualPts.length-1];
+    x.fillStyle="#3fb6ff"; x.beginPath(); x.arc(X(last[0]),Y(last[1]),4,0,7); x.fill();
+  }
+}
+
+/* ============================================================
+   SETTINGS BINDINGS
+============================================================ */
+// Durations are stored internally in SECONDS but entered/shown in whole MINUTES.
+const sIds=[["s_startPct","startPct"],["s_targetPct","targetPct"],["s_rampUp","rampUp"],
+            ["s_hold","hold"],["s_rampDown","rampDown"],["s_cooldown","cooldown"]];
+const TIME_KEYS={rampUp:1,hold:0,rampDown:1,cooldown:1};   // value = min minutes
+function fillSettings(){
+  sIds.forEach(([id,k])=>{
+    document.getElementById(id).value = (k in TIME_KEYS) ? Math.round(DB.settings[k]/60) : DB.settings[k];
+  });
+  document.querySelectorAll("#colorRow button").forEach(b=>b.classList.toggle("on",b.dataset.c===DB.settings.color));
+  updateEnvLabels();
+}
+function bindSettings(){
+  sIds.forEach(([id,k])=>{
+    document.getElementById(id).addEventListener("change",e=>{
+      let v=parseFloat(e.target.value);
+      // capture the current playing level BEFORE changing the target
+      const liveTarget = (k==="targetPct" && sess && !sess.done && !sess.stopped);
+      const fromLevel = liveTarget ? modelLevel(actx.currentTime-sess.t0) : null;
+      if(k in TIME_KEYS){
+        if(!isFinite(v)) v=DB.settings[k]/60;
+        v=Math.max(TIME_KEYS[k],Math.round(v));   // whole minutes
+        e.target.value=v; DB.settings[k]=v*60;     // store seconds
+      }else{                                       // startPct / targetPct (0–100)
+        if(!isFinite(v)) v=DB.settings[k];
+        v=Math.max(0,Math.min(100,Math.round(v)));
+        e.target.value=v; DB.settings[k]=v;
+      }
+      save(); updateEnvLabels();
+      if(liveTarget) startTargetTransition(fromLevel);
+      else if(!sess) drawGraph(null,false);
+    });
+  });
+  document.querySelectorAll("#colorRow button").forEach(b=>{
+    b.addEventListener("click",()=>{ setColor(b.dataset.c); });
+  });
+}
+const fmtMin=sec=>{ const m=Math.round(sec/60); return m+" min"; };
+function updateEnvLabels(){
+  document.getElementById("totalLbl").textContent=
+    "Planned session length: "+fmtMin(totalPlanned())+"  ·  manual stop fades over "+fmtMin(DB.settings.cooldown)+".";
+}
+
+/* ============================================================
+   CALENDAR LOG
+============================================================ */
+let calCur=new Date(); calCur.setDate(1);
+let openDate=null;
+const dkey=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+function calMove(n){ calCur.setMonth(calCur.getMonth()+n); renderCal(); }
+function sev(e){ return e? Math.max(e.pain||0,e.ringing||0,e.headache||0):0; }
+function renderCal(){
+  const y=calCur.getFullYear(), m=calCur.getMonth();
+  document.getElementById("calTitle").textContent=calCur.toLocaleDateString(undefined,{month:"long",year:"numeric"});
+  const first=new Date(y,m,1).getDay(), days=new Date(y,m+1,0).getDate();
+  const todayK=dkey(new Date());
+  let html=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(d=>`<div class="dow">${d}</div>`).join("");
+  for(let i=0;i<first;i++) html+=`<div class="day empty"></div>`;
+  for(let d=1;d<=days;d++){
+    const k=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    const e=DB.symptomLog[k];
+    const cls=`day${e?" logged":""} sev${sev(e)}${k===todayK?" today":""}`;
+    const trig=e&&e.trigger&&e.trigger.happened?`<span class="mk">🔔</span>`:"";
+    const base=e&&e.baseline&&e.baseline.returned?`<span class="bl">✓</span>`:"";
+    html+=`<button class="${cls}" onclick="openDay('${k}')">${trig}${base}<span>${d}</span></button>`;
+  }
+  document.getElementById("cal").innerHTML=html;
+}
+function buildSegs(){
+  ["pain","ringing","headache"].forEach(name=>{
+    const wrap=document.getElementById("seg-"+name); wrap.innerHTML="";
+    for(let i=0;i<=5;i++){
+      const b=document.createElement("button"); b.textContent=i; b.dataset.v=i;
+      b.onclick=()=>{ wrap.querySelectorAll("button").forEach(x=>x.classList.remove("on")); b.classList.add("on"); };
+      wrap.appendChild(b);
+    }
+  });
+}
+function segVal(name){ const on=document.querySelector("#seg-"+name+" button.on"); return on?+on.dataset.v:0; }
+function segSet(name,v){ document.querySelectorAll("#seg-"+name+" button").forEach(b=>b.classList.toggle("on",+b.dataset.v===(v||0))); }
+function lastTriggerBefore(k){
+  let best=null;
+  for(const d in DB.symptomLog){ const e=DB.symptomLog[d];
+    if(e.trigger&&e.trigger.happened&&d<=k&&(!best||d>best)) best=d; }
+  return best;
+}
+function openDay(k){
+  openDate=k;
+  const e=DB.symptomLog[k]||{};
+  document.getElementById("dmTitle").textContent=new Date(k+"T00:00").toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});
+  segSet("pain",e.pain); segSet("ringing",e.ringing); segSet("headache",e.headache);
+  setSw("sw-trig", e.trigger&&e.trigger.happened);
+  document.getElementById("d_trigNote").value=e.trigger?e.trigger.note||"":"";
+  document.getElementById("trigNoteWrap").style.display=(e.trigger&&e.trigger.happened)?"flex":"none";
+  setSw("sw-base", e.baseline&&e.baseline.returned);
+  document.getElementById("d_notes").value=e.notes||"";
+  const lt=lastTriggerBefore(k);
+  const bi=document.getElementById("baseInfo");
+  if(lt){ const days=Math.round((new Date(k)-new Date(lt))/864e5);
+    bi.textContent=`Last trigger: ${lt} — ${days} day${days===1?"":"s"} ago.`; }
+  else bi.textContent="No prior trigger logged.";
+  renderDaySessions(k);
+  document.getElementById("dayModal").classList.add("on");
+  document.body.classList.add("scrim");
+}
+function renderDaySessions(k){
+  const el=document.getElementById("daySessions");
+  const list=DB.sessions.filter(s=>dkey(new Date(s.startTs))===k).sort((a,b)=>a.startTs-b.startTs);
+  if(!list.length){ el.innerHTML=""; return; }
+  let h=`<h3 style="margin:1rem 0 .3rem">Sessions logged (${list.length})</h3>`;
+  list.forEach(s=>{
+    const t=new Date(s.startTs).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
+    const how=s.completed?"completed":(s.stoppedManually?"stopped early":"ended");
+    const c=s.settings;
+    h+=`<div class="sess">`+
+       `<div class="srow"><b>${t}</b><span>${s.color} · ${how}</span></div>`+
+       `<div class="srow"><span>Peak ${fmtPct(s.peakPct)} · target ${fmtPct(s.targetPct)}</span>`+
+       `<span>${fmtTime(s.actualDurationSec)}</span></div>`+
+       (c?`<div class="smeta">start ${c.startPct}% · ramp ${fmtMin(c.rampUp)} · hold ${fmtMin(c.hold)} · down ${fmtMin(c.rampDown)}</div>`:"")+
+       `</div>`;
+  });
+  el.innerHTML=h;
+}
+function closeDay(){ document.getElementById("dayModal").classList.remove("on"); document.body.classList.remove("scrim"); openDate=null; }
+function setSw(id,on){ document.getElementById(id).classList.toggle("on",!!on); if(id==="sw-trig") document.getElementById("trigNoteWrap").style.display=on?"flex":"none"; }
+function toggleSw(id){ const el=document.getElementById(id); el.classList.toggle("on"); if(id==="sw-trig") document.getElementById("trigNoteWrap").style.display=el.classList.contains("on")?"flex":"none"; }
+function saveDay(){
+  if(!openDate) return;
+  const trig=document.getElementById("sw-trig").classList.contains("on");
+  const base=document.getElementById("sw-base").classList.contains("on");
+  DB.symptomLog[openDate]={
+    pain:segVal("pain"), ringing:segVal("ringing"), headache:segVal("headache"),
+    trigger:{ happened:trig, note:document.getElementById("d_trigNote").value.trim() },
+    baseline:{ returned:base, returnedDate:base?openDate:null },
+    notes:document.getElementById("d_notes").value.trim()
+  };
+  save(); renderCal(); renderStats(); closeDay();
+}
+function clearDay(){ if(openDate&&confirm("Clear this day's log?")){ delete DB.symptomLog[openDate]; save(); renderCal(); renderStats(); closeDay(); } }
+
+/* ============================================================
+   ANALYTICS
+============================================================ */
+function axisChart(canvasId,draw){
+  const c=document.getElementById(canvasId); const {x,w,h}=fitCanvas(c);
+  x.clearRect(0,0,w,h); draw(x,w,h);
+}
+function renderStats(){
+  const S=DB.sessions.slice().sort((a,b)=>a.startTs-b.startTs);
+  // ---- Peak dB progress ----
+  axisChart("chPeak",(x,w,h)=>{
+    if(!S.length){ emptyMsg(x,w,h,"No sessions yet"); return; }
+    const padL=34,padB=22,padT=10,padR=8, gw=w-padL-padR, gh=h-padT-padB;
+    const pk=s=> s.peakPct!=null?s.peakPct:0;
+    const peaks=S.map(pk);
+    let lo=Math.max(0,Math.floor((Math.min(...peaks)-5)/10)*10);
+    let hi=Math.min(100,Math.ceil((Math.max(...peaks)+5)/10)*10);
+    if(hi-lo<20){ hi=Math.min(100,lo+20); lo=Math.max(0,hi-20); }
+    const n=S.length;
+    const X=i=> padL + (n===1? gw/2 : gw*i/(n-1));
+    const Y=v=> padT + gh*(1-(v-lo)/(hi-lo));
+    grid(x,w,h,padL,padR,padT,padB,lo,hi,"%");
+    x.strokeStyle="#3fb6ff"; x.lineWidth=2.5; x.beginPath();
+    S.forEach((s,i)=>{ i?x.lineTo(X(i),Y(pk(s))):x.moveTo(X(i),Y(pk(s))); }); x.stroke();
+    x.fillStyle="#3fb6ff";
+    S.forEach((s,i)=>{ x.beginPath(); x.arc(X(i),Y(pk(s)),3.5,0,7); x.fill(); });
+    x.fillStyle="#8b949e"; x.font="10px sans-serif";
+    [0,n-1].forEach(i=>{ if(i>=0&&S[i]) x.fillText(new Date(S[i].startTs).toLocaleDateString(undefined,{month:"short",day:"numeric"}), X(i)-14, h-6); });
+  });
+  // ---- Summary ----
+  const sum=document.getElementById("summary");
+  if(!S.length){ sum.innerHTML='<p>No sessions logged yet.</p>'; }
+  else{
+    const pk=s=> s.peakPct!=null?s.peakPct:0;
+    const peak=Math.max(...S.map(pk));
+    const totSec=S.reduce((a,s)=>a+s.actualDurationSec,0);
+    const totStr = totSec<60 ? totSec+" sec"
+                 : totSec<3600 ? Math.round(totSec/60)+" min"
+                 : (totSec/3600).toFixed(1)+" hr";
+    const last=S[S.length-1], first=S[0];
+    const trend=pk(last)-pk(first);
+    sum.innerHTML=
+      kv("Total sessions",S.length)+
+      kv("Highest peak ever",fmtPct(peak))+
+      kv("Total exposure time",totStr)+
+      kv("Latest session peak",fmtPct(pk(last)))+
+      kv("Change since first",(trend>=0?"+":"")+Math.round(trend)+"%")+
+      kv("Manual stops",S.filter(s=>s.stoppedManually).length+" / "+S.length);
+  }
+  // ---- Sessions per week ----
+  axisChart("chWeek",(x,w,h)=>{
+    if(!S.length){ emptyMsg(x,w,h,"No sessions yet"); return; }
+    const wk={};
+    S.forEach(s=>{ const d=new Date(s.startTs); const o=new Date(d); o.setDate(d.getDate()-((d.getDay()+6)%7)); const k=dkey(o); wk[k]=(wk[k]||0)+1; });
+    const keys=Object.keys(wk).sort(); const vals=keys.map(k=>wk[k]);
+    const padL=28,padB=34,padT=10,padR=8, gw=w-padL-padR, gh=h-padT-padB;
+    const hi=Math.max(...vals,1);
+    grid(x,w,h,padL,padR,padT,padB,0,hi,"#");
+    const bw=gw/keys.length*0.62;
+    keys.forEach((k,i)=>{
+      const cx=padL+gw*(i+0.5)/keys.length, bh=gh*vals[i]/hi;
+      x.fillStyle="#1f6feb"; x.fillRect(cx-bw/2,padT+gh-bh,bw,bh);
+      x.fillStyle="#8b949e"; x.font="9px sans-serif";
+      const lbl=new Date(k).toLocaleDateString(undefined,{month:"numeric",day:"numeric"});
+      x.save(); x.translate(cx,h-4); x.rotate(-Math.PI/4); x.fillText(lbl,-18,0); x.restore();
+    });
+  });
+  // ---- Symptoms over time ----
+  axisChart("chSym",(x,w,h)=>{
+    const days=Object.keys(DB.symptomLog).sort();
+    if(!days.length){ emptyMsg(x,w,h,"No symptom entries yet"); return; }
+    const padL=26,padB=22,padT=10,padR=8, gw=w-padL-padR, gh=h-padT-padB;
+    const n=days.length;
+    const X=i=> padL + (n===1?gw/2:gw*i/(n-1));
+    const Y=v=> padT + gh*(1-v/5);
+    grid(x,w,h,padL,padR,padT,padB,0,5,"0-5");
+    const lines=[["pain","#f85149"],["ringing","#d29922"],["headache","#3fb6ff"]];
+    lines.forEach(([f,col])=>{
+      x.strokeStyle=col; x.lineWidth=2; x.beginPath();
+      days.forEach((k,i)=>{ const v=DB.symptomLog[k][f]||0; i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v)); }); x.stroke();
+    });
+    days.forEach((k,i)=>{ const e=DB.symptomLog[k];
+      if(e.trigger&&e.trigger.happened){ x.fillStyle="#f85149"; x.font="11px sans-serif"; x.fillText("🔔",X(i)-6,padT+10); }
+      if(e.baseline&&e.baseline.returned){ x.fillStyle="#3fb950"; x.font="11px sans-serif"; x.fillText("✓",X(i)-5,h-padB-2); }
+    });
+    x.fillStyle="#8b949e"; x.font="10px sans-serif";
+    [0,n-1].forEach(i=>{ if(days[i]) x.fillText(new Date(days[i]).toLocaleDateString(undefined,{month:"short",day:"numeric"}),X(i)-14,h-6); });
+  });
+}
+function kv(k,v){ return `<div class="kv"><span class="muted">${k}</span><span>${v}</span></div>`; }
+function emptyMsg(x,w,h,m){ x.fillStyle="#8b949e"; x.font="13px sans-serif"; x.textAlign="center"; x.fillText(m,w/2,h/2); x.textAlign="left"; }
+function grid(x,w,h,pL,pR,pT,pB,lo,hi,unit){
+  const gh=h-pT-pB;
+  x.strokeStyle="#2d333b"; x.fillStyle="#8b949e"; x.font="10px sans-serif"; x.lineWidth=1;
+  for(let i=0;i<=4;i++){ const v=lo+(hi-lo)*i/4, yy=pT+gh*(1-i/4);
+    x.beginPath(); x.moveTo(pL,yy); x.lineTo(w-pR,yy); x.stroke();
+    x.fillText(Math.round(v*10)/10, 3, yy+3); }
+  x.textAlign="right"; x.fillText(unit, w-pR, pT-2); x.textAlign="left";
+}
+
+/* ============================================================
+   EXPORT / IMPORT / WIPE
+============================================================ */
+const backupJSON=()=>JSON.stringify(DB,null,2);
+const backupName=()=>"tinnitus-therapy-"+new Date().toISOString().slice(0,10)+".json";
+async function exportData(){
+  const text=backupJSON(), name=backupName();
+  // Prefer the native share sheet (iOS: Save to Files / AirDrop / Mail)
+  try{
+    if(navigator.canShare){
+      const file=new File([text],name,{type:"application/json"});
+      if(navigator.canShare({files:[file]})){ await navigator.share({files:[file],title:name}); return; }
+    }
+  }catch(e){ if(e&&e.name==="AbortError") return; }
+  // Fallback: normal download (desktop / Android)
+  const blob=new Blob([text],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+async function copyBackup(){
+  const text=backupJSON();
+  try{
+    await navigator.clipboard.writeText(text);
+    alert("Backup copied. Paste it somewhere safe (Notes/email), or into “Paste & restore” on another device.");
+    return;
+  }catch(e){}
+  const ta=document.createElement("textarea");
+  ta.value=text; ta.style.position="fixed"; ta.style.opacity="0";
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  let ok=false; try{ ok=document.execCommand("copy"); }catch(_){}
+  ta.remove();
+  alert(ok?"Backup copied.":"Couldn't copy automatically — use Export / Share instead.");
+}
+function applyBackup(d){
+  if(!d||typeof d!=="object"||!("sessions" in d)) return false;
+  const def=defaults();
+  DB={...def,...d,settings:{...def.settings,...(d.settings||{})}};
+  save(); refreshAll(); return true;
+}
+function importData(ev){
+  const f=ev.target.files[0]; if(!f){ return; }
+  const r=new FileReader();
+  r.onload=()=>{
+    let d; try{ d=JSON.parse(r.result); }catch(e){ d=null; }
+    if(d && ("sessions" in (d||{}))){
+      if(confirm("Replace ALL current data with the imported backup?")){
+        applyBackup(d)?alert("Imported."):alert("That file isn't a valid backup.");
+      }
+    }else alert("That file isn't a valid backup.");
+    ev.target.value="";
+  };
+  r.readAsText(f);
+}
+function openRestore(){ document.getElementById("restoreText").value=""; document.getElementById("restoreModal").classList.add("on"); document.body.classList.add("scrim"); }
+function closeRestore(){ document.getElementById("restoreModal").classList.remove("on"); document.body.classList.remove("scrim"); }
+function restoreFromText(){
+  let d; try{ d=JSON.parse(document.getElementById("restoreText").value.trim()); }
+  catch(e){ alert("That text isn't a valid backup."); return; }
+  if(!confirm("Replace ALL current data with this backup?")) return;
+  if(applyBackup(d)){ closeRestore(); alert("Restored."); }
+  else alert("That text isn't a valid backup.");
+}
+function wipeData(){
+  if(!confirm("Erase ALL sessions and logs? This cannot be undone.")) return;
+  if(!confirm("Really erase everything? Export a backup first if unsure.")) return;
+  localStorage.removeItem(KEY); DB=defaults(); refreshAll(); alert("All data erased.");
+}
+
+/* ============================================================
+   NAV / INIT
+============================================================ */
+const titles={therapy:"Therapy",log:"Daily Log",stats:"Analytics",settings:"Settings"};
+function go(t){
+  document.querySelectorAll(".tab").forEach(s=>s.classList.remove("on"));
+  document.getElementById("tab-"+t).classList.add("on");
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.tab===t));
+  document.getElementById("hdrTitle").textContent=titles[t];
+  if(t==="log") renderCal();
+  if(t==="stats") renderStats();
+  if(t==="therapy"&&!sess) drawGraph(null,false);
+}
+function refreshAll(){ fillSettings(); renderCal(); renderStats(); if(!sess) drawGraph(null,false); }
+function ackDisc(){ DB.disclaimerAck=true; save(); document.getElementById("disc").style.display="none"; }
+function dismissVolTip(){ DB.volTipAck=true; save(); document.getElementById("volTip").style.display="none"; }
+
+window.addEventListener("resize",()=>{ if(!sess) drawGraph(null,false); renderStats(); });
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&wakeLock===null&&sess&&!sess.done) lockScreen(); });
+
+(function init(){
+  buildSegs(); bindSettings(); fillSettings();
+  if(!DB.disclaimerAck) document.getElementById("disc").style.display="flex";
+  if(DB.volTipAck) document.getElementById("volTip").style.display="none";
+  drawGraph(null,false); renderCal(); renderStats();
+})();
+</script>
+</body>
+</html>

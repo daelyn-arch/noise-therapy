@@ -1,0 +1,7 @@
+node_modules/
+shots/
+package.json
+package-lock.json
+shoot.js
+server.js
+snap1.js
