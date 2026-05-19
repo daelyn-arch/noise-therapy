@@ -3,6 +3,11 @@
 A single-file web app for slow-ramp noise exposure therapy with progress tracking.
 Everything lives in `index.html` — no install, no build, works offline.
 
+**▶ Live app: https://daelyn-arch.github.io/noise-therapy/**
+
+Open it on your phone and use the browser's *Add to Home Screen* for a full-screen
+launch. All data stays only in your own browser (nothing is uploaded).
+
 ## What it does
 
 - **Therapy tab** — generates white / pink / brown / green noise that ramps **slowly
