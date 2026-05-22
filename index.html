@@ -443,14 +443,18 @@ async function buildBuffers(){
   // BROWN
   const brown=new Float32Array(len); let last=0;
   for(let i=0;i<len;i++){ last=(last+0.02*white[i])/1.02; brown[i]=last*3.5; }
-  // GREEN = white through bandpass ~500Hz (rendered offline)
+  // GREEN = full-bodied pink noise with a broad ~500Hz boost + gentle high roll-off,
+  // matching the smooth, deep "green noise" of popular sleep tracks (not a thin bandpass).
   let green;
   try{
     const off=new OfflineAudioContext(1,len,sr);
-    const wb=off.createBuffer(1,len,sr); wb.getChannelData(0).set(white);
-    const ws=off.createBufferSource(); ws.buffer=wb;
-    const bp=off.createBiquadFilter(); bp.type="bandpass"; bp.frequency.value=500; bp.Q.value=1.5;
-    ws.connect(bp).connect(off.destination); ws.start();
+    const pb=off.createBuffer(1,len,sr); pb.getChannelData(0).set(pink);
+    const ps=off.createBufferSource(); ps.buffer=pb;
+    // broad mid emphasis centred on the green-noise region (~500Hz), keeps body + highs
+    const peak=off.createBiquadFilter(); peak.type="peaking"; peak.frequency.value=500; peak.Q.value=0.9; peak.gain.value=10;
+    // soften harsh hiss so it sounds smooth/deep like the YouTube track
+    const lp=off.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=6500; lp.Q.value=0.7;
+    ps.connect(peak).connect(lp).connect(off.destination); ps.start();
     const rendered=await off.startRendering();
     green=rendered.getChannelData(0).slice();
   }catch(e){ green=pink.slice(); }
