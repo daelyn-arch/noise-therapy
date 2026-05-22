@@ -60,12 +60,6 @@
   .seg{display:flex;gap:.3rem}
   .seg button{flex:1;padding:.55rem 0;background:var(--panel2);border:1px solid var(--line)}
   .seg button.on{background:var(--accent2);color:#fff;border-color:var(--accent2)}
-  .colors button{border:2px solid transparent}
-  .colors button[data-c="white"]{border-color:#d6dee8}
-  .colors button[data-c="pink"]{border-color:#ff8fab}
-  .colors button[data-c="brown"]{border-color:#b5793f}
-  .colors button[data-c="green"]{border-color:#3fb950}
-  .colors button.on{outline:2px solid var(--accent);outline-offset:2px}
   /* bottom nav */
   nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--panel);
     border-top:1px solid var(--line);padding:.35rem .25rem calc(.35rem + env(safe-area-inset-bottom));z-index:30}
@@ -167,16 +161,6 @@
           <button class="btn-stop2" id="stopNowBtn" onclick="stopNow()">■ Stop now</button>
           <button class="btn-stop" id="stopBtn" onclick="manualStop()">↓ Stop &amp; cool down</button>
         </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Noise color</h2>
-      <div class="row colors" id="colorRow" style="gap:.4rem">
-        <button data-c="white">White</button>
-        <button data-c="pink">Pink</button>
-        <button data-c="brown">Brown</button>
-        <button data-c="green">Green</button>
       </div>
     </div>
 
@@ -440,9 +424,6 @@ async function buildBuffers(){
     b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
     pink[i]=b0+b1+b2+b3+b4+b5+b6+w*0.5362; b6=w*0.115926;
   }
-  // BROWN
-  const brown=new Float32Array(len); let last=0;
-  for(let i=0;i<len;i++){ last=(last+0.02*white[i])/1.02; brown[i]=last*3.5; }
   // GREEN = full-bodied pink noise with a broad ~500Hz boost + gentle high roll-off,
   // matching the smooth, deep "green noise" of popular sleep tracks (not a thin bandpass).
   let green;
@@ -459,7 +440,7 @@ async function buildBuffers(){
     green=rendered.getChannelData(0).slice();
   }catch(e){ green=pink.slice(); }
   const mk=arr=>{ const b=ctx.createBuffer(1,len,sr); rmsNormalize(arr); b.getChannelData(0).set(arr); b.dataArr=arr; return b; };
-  buffers={ white:mk(white), pink:mk(pink), brown:mk(brown), green:mk(green) };
+  buffers={ green:mk(green) };
 }
 function startNoise(color){
   src=actx.createBufferSource(); src.buffer=buffers[color]; src.loop=true;
