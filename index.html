@@ -410,6 +410,21 @@ function rmsNormalize(data,target=0.2){
   for(let i=0;i<data.length;i++) data[i]=Math.max(-1,Math.min(1,data[i]*k));
 }
 async function buildBuffers(){
+  // Preferred source: the recorded green-noise loop (seamless 60s). Fall back to the
+  // synth below if it can't be fetched/decoded (e.g. opened as a bare local file).
+  try{
+    const ctx=ensureCtx();
+    const resp=await fetch("green-loop.mp3",{cache:"force-cache"});
+    if(resp.ok){
+      const ab=await resp.arrayBuffer();
+      const buf=await ctx.decodeAudioData(ab);
+      buffers={ green:buf };
+      return;
+    }
+  }catch(e){ /* fall through to synth */ }
+  await buildSynthGreen();
+}
+async function buildSynthGreen(){
   const ctx=ensureCtx(), sr=ctx.sampleRate, len=sr*5;
   // WHITE
   const white=new Float32Array(len);
