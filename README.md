@@ -34,8 +34,13 @@ Pick one:
    in the browser. Works, but no home-screen install.
 
 On **iPhone**: turn the silent/ring switch **off silent** or audio may not play.
-Don't manually lock the screen mid-session — the app keeps the screen awake where
-the browser supports it, but iOS can still suspend audio if locked.
+
+**Background playback:** the noise keeps playing when you switch to another app or
+lock the screen, and shows on the lock screen / Control Center. One caveat — while
+another app is in the foreground iOS freezes the page, so the timed ramp **pauses**
+(the noise holds at its current level) and resumes from where it left off when you
+return to the app. The slow ramp-up/ramp-down only advances while the app is
+on-screen; the steady *hold* phase is fine to run in the background.
 
 ## How volume works (important)
 

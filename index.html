@@ -122,6 +122,10 @@
 </head>
 <body>
 
+<!-- Looping noise source. A media element (not Web Audio) so iOS keeps it
+     playing in the background / on the lock screen. -->
+<audio id="player" loop playsinline webkit-playsinline preload="auto"></audio>
+
 <!-- ========== FIRST-RUN DISCLAIMER ========== -->
 <div class="disc" id="disc" style="display:none">
   <div class="box">
@@ -410,6 +414,23 @@ const fmtTime=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+":"+String
    AUDIO ENGINE
 ============================================================ */
 let actx=null, buffers={}, src=null, gainNode=null, calSrc=null, calGain=null;
+// Recorded loop files per color (media-element playback, background-capable).
+const COLOR_SRC={ green:"green-loop.mp3" };
+let player=null;        // <audio> element — the primary engine
+let useSynth=false;     // true only if the file can't load (Web Audio fallback)
+function ensurePlayer(){
+  if(player) return player;
+  player=document.getElementById("player");
+  player.loop=true; player.preload="auto";
+  player.setAttribute("playsinline",""); player.setAttribute("webkit-playsinline","");
+  // Lock-screen / Control-Center pause → treat as an immediate stop (we can't run a
+  // fade while backgrounded). `_internalPause` marks pauses WE trigger, to ignore them.
+  player.addEventListener("pause",()=>{
+    if(player._internalPause){ player._internalPause=false; return; }
+    if(sess&&!sess.done) stopNow();
+  });
+  return player;
+}
 function ensureCtx(){
   if(!actx){
     actx=new (window.AudioContext||window.webkitAudioContext)();
@@ -422,21 +443,8 @@ function rmsNormalize(data,target=0.2){
   const rms=Math.sqrt(s/data.length)||1; const k=target/rms;
   for(let i=0;i<data.length;i++) data[i]=Math.max(-1,Math.min(1,data[i]*k));
 }
-async function buildBuffers(){
-  // Preferred source: the recorded green-noise loop (seamless 60s). Fall back to the
-  // synth below if it can't be fetched/decoded (e.g. opened as a bare local file).
-  try{
-    const ctx=ensureCtx();
-    const resp=await fetch("green-loop.mp3",{cache:"force-cache"});
-    if(resp.ok){
-      const ab=await resp.arrayBuffer();
-      const buf=await ctx.decodeAudioData(ab);
-      buffers={ green:buf };
-      return;
-    }
-  }catch(e){ /* fall through to synth */ }
-  await buildSynthGreen();
-}
+// Web Audio synth of green — only used as a fallback when the recorded loop file
+// can't be loaded (e.g. opened as a bare local file with no server).
 async function buildSynthGreen(){
   const ctx=ensureCtx(), sr=ctx.sampleRate, len=sr*5;
   // WHITE
@@ -470,25 +478,71 @@ async function buildSynthGreen(){
   const mk=arr=>{ const b=ctx.createBuffer(1,len,sr); rmsNormalize(arr); b.getChannelData(0).set(arr); b.dataArr=arr; return b; };
   buffers={ green:mk(green) };
 }
-function startNoise(color){
-  src=actx.createBufferSource(); src.buffer=buffers[color]; src.loop=true;
+// Begin playback for `color`. Prefer the media element (background-capable); fall
+// back to the Web Audio synth if the file won't play. Must be called from a user
+// gesture (the Start button) so iOS grants playback.
+async function startNoise(color){
+  const file=COLOR_SRC[color];
+  if(file){
+    try{
+      const pl=ensurePlayer();
+      const url=new URL(file,location.href).href;
+      if(pl.src!==url) pl.src=file;
+      pl.loop=true; pl.volume=0; pl._internalPause=false;
+      await pl.play();
+      useSynth=false;
+      if("mediaSession" in navigator) navigator.mediaSession.playbackState="playing";
+      return;
+    }catch(e){ /* fall through to synth */ }
+  }
+  useSynth=true;
+  ensureCtx();
+  if(!buffers.green) await buildSynthGreen();
+  src=actx.createBufferSource(); src.buffer=buffers[color]||buffers.green; src.loop=true;
   gainNode=actx.createGain(); gainNode.gain.value=0;
   src.connect(gainNode).connect(actx.destination); src.start();
 }
-function stopNoise(){ try{src&&src.stop();}catch(e){} src=null; gainNode=null; }
-// Swap the noise buffer live without disturbing the gain envelope.
+function stopNoise(){
+  if(player){ player._internalPause=true; try{player.pause();}catch(e){} }
+  if(src){ try{src.stop();}catch(e){} } src=null; gainNode=null;
+  if("mediaSession" in navigator) navigator.mediaSession.playbackState="none";
+}
+// Set the current output level (0–100% → perceptual gain), on whichever engine is live.
+function setVolume(pct){
+  const g=Math.max(0,Math.min(1,gainFromPct(pct)));
+  if(useSynth){ if(gainNode){ try{gainNode.gain.setTargetAtTime(g,actx.currentTime,0.05);}catch(e){ gainNode.gain.value=g; } } }
+  else if(player){ player.volume=g; }
+}
+// Swap the noise source live (mid-session color change).
 function swapNoise(color){
-  if(!src||!gainNode||!buffers[color]) return;
-  const old=src;
-  const n=actx.createBufferSource(); n.buffer=buffers[color]; n.loop=true;
-  n.connect(gainNode); n.start();
-  src=n;
-  try{ old.stop(actx.currentTime+0.08); }catch(e){}   // brief overlap to soften the switch
+  if(useSynth){
+    if(!src||!gainNode||!buffers[color]) return;
+    const old=src;
+    const n=actx.createBufferSource(); n.buffer=buffers[color]; n.loop=true;
+    n.connect(gainNode); n.start(); src=n;
+    try{ old.stop(actx.currentTime+0.08); }catch(e){}
+    return;
+  }
+  const file=COLOR_SRC[color]; if(!player||!file) return;
+  const url=new URL(file,location.href).href;
+  if(player.src===url) return;            // same source — nothing to do
+  const v=player.volume; player._internalPause=true;
+  player.src=file; player.loop=true; player.volume=v;
+  player.play().catch(()=>{});
 }
 function setColor(c){
   DB.settings.color=c; save();
   document.querySelectorAll("#colorRow button").forEach(b=>b.classList.toggle("on",b.dataset.c===c));
   if(sess&&!sess.done){ sess.color=c; swapNoise(c); }   // live change mid-session
+}
+function setupMediaSession(){
+  if(!("mediaSession" in navigator)) return;
+  try{
+    navigator.mediaSession.metadata=new MediaMetadata({title:"Green noise therapy",artist:"Noise Therapy"});
+    navigator.mediaSession.setActionHandler("pause",()=>{ if(sess&&!sess.done) stopNow(); });
+    navigator.mediaSession.setActionHandler("stop",()=>{ if(sess&&!sess.done) stopNow(); });
+    navigator.mediaSession.setActionHandler("play",()=>{});
+  }catch(e){}
 }
 
 /* ---- envelope schedule (linear in % loudness) ---- */
@@ -521,28 +575,12 @@ function modelLevel(t){
   }
   return p;
 }
-// (Re)schedule the audio gain to follow modelLevel() from now to the end.
-// Called on start, on a live target change, and on manual cool-down stop.
-function rescheduleAudio(){
-  if(!sess||sess.done||!gainNode) return;
-  const tNow=actx.currentTime-sess.t0;
-  const endT=sess.stopped?sess.coolEnd:sess.plannedTotal;
-  const dur=Math.max(0.05,endT-tNow);
-  const N=Math.min(4000,Math.max(2,Math.round(dur*8)));
-  const curve=new Float32Array(N);
-  for(let i=0;i<N;i++) curve[i]=Math.max(0,gainFromPct(modelLevel(tNow+dur*i/(N-1))));
-  const now=actx.currentTime;
-  gainNode.gain.cancelScheduledValues(now);
-  gainNode.gain.setValueAtTime(curve[0],now);
-  gainNode.gain.setValueCurveAtTime(curve,now,dur);
-}
 // Live target change: glide from the level we were AT (captured before the new
-// target was applied) into the new plan over TARGET_GLIDE seconds.
+// target was applied) into the new plan over TARGET_GLIDE seconds. The per-tick
+// setVolume() follows modelLevel(), so no audio rescheduling is needed.
 function startTargetTransition(fromLevel){
   if(!sess||sess.done||sess.stopped) return;
-  const tNow=actx.currentTime-sess.t0;
-  sess.tr={ at:tNow, dur:TARGET_GLIDE, from:fromLevel };
-  rescheduleAudio();
+  sess.tr={ at:sess.tElapsed, dur:TARGET_GLIDE, from:fromLevel };
   drawGraph(sess,false);
 }
 
@@ -556,15 +594,20 @@ function releaseScreen(){ try{ wakeLock&&wakeLock.release(); }catch(e){} wakeLoc
 
 async function startSession(){
   if(sess) return;
-  ensureCtx();
-  if(!Object.keys(buffers).length){ document.getElementById("startBtn").textContent="Loading…"; await buildBuffers(); document.getElementById("startBtn").textContent="▶ Start"; }
   const color=DB.settings.color;
-  startNoise(color);
+  const btn=document.getElementById("startBtn");
+  btn.textContent="Loading…";
+  await startNoise(color);          // begins playback within the user gesture
+  btn.textContent="▶ Start";
   await lockScreen();
-  sess={ color, startWall:Date.now(), t0:actx.currentTime, phase:"running",
-          peakPct:-Infinity, timeAtTarget:0, lastTick:actx.currentTime, done:false,
+  setupMediaSession();
+  // Time base is `tElapsed`, accumulated from frame deltas — it only advances while
+  // the page is visible. Backgrounding freezes it (audio holds at the current level)
+  // and the ramp resumes from where it left off on return.
+  sess={ color, startWall:Date.now(), tElapsed:0, lastFrame:performance.now(),
+          phase:"running", peakPct:-Infinity, timeAtTarget:0, done:false,
           stopped:false, tr:null, actualPts:[], plannedTotal:totalPlanned() };
-  rescheduleAudio();
+  setVolume(modelLevel(0));
   showStopButtons(true);
   setState("ramping up");
   tick();
@@ -578,7 +621,7 @@ function endSession(stopped,immediate){
   if(!sess||sess.done) return;
   sess.done=true;
   cancelAnimationFrame(sess.raf);
-  const durSec=(actx?actx.currentTime:0)-sess.t0;
+  const durSec=sess.tElapsed;
   stopNoise(); releaseScreen();
   const s=DB.settings;
   pendingSession={
@@ -637,12 +680,11 @@ function resolveLog(saveIt){
 // Gradual stop: glide down to silence over the cool-down time.
 function manualStop(){
   if(!sess||sess.done||sess.stopped) return;
-  const tNow=actx.currentTime-sess.t0;
+  const tNow=sess.tElapsed;
   const cur=modelLevel(tNow);            // capture BEFORE marking stopped
   sess.stopped=true; sess.stopAt=tNow; sess.stopPct=cur;
   sess.coolEnd=tNow+Math.max(1,DB.settings.cooldown);
   setState("cooling down");
-  rescheduleAudio();
 }
 // Immediate stop: cut audio and end the session right now.
 function stopNow(){
@@ -651,9 +693,15 @@ function stopNow(){
 }
 function tick(){
   if(!sess||sess.done) return;
-  const t=actx.currentTime - sess.t0;
+  // Advance the session clock by the real time since the last frame, but ignore any
+  // gap >0.5s (page was hidden / throttled) so backgrounding pauses the ramp.
+  const nowMs=performance.now();
+  let dt=(nowMs-sess.lastFrame)/1000; sess.lastFrame=nowMs;
+  if(!(dt>0)||dt>0.5) dt=0;
+  sess.tElapsed+=dt;
+  const t=sess.tElapsed;
   const lvl=modelLevel(t);
-  const dt=actx.currentTime - sess.lastTick; sess.lastTick=actx.currentTime;
+  setVolume(lvl);
   if(lvl>sess.peakPct) sess.peakPct=lvl;
   if(lvl>=DB.settings.targetPct-0.5) sess.timeAtTarget+=dt;
   sess.actualPts.push([t,lvl]);
@@ -751,7 +799,7 @@ function bindSettings(){
       let v=parseFloat(e.target.value);
       // capture the current playing level BEFORE changing the target
       const liveTarget = (k==="targetPct" && sess && !sess.done && !sess.stopped);
-      const fromLevel = liveTarget ? modelLevel(actx.currentTime-sess.t0) : null;
+      const fromLevel = liveTarget ? modelLevel(sess.tElapsed) : null;
       if(k in TIME_KEYS){
         if(!isFinite(v)) v=DB.settings[k]/60;
         v=Math.max(TIME_KEYS[k],Math.round(v));   // whole minutes
@@ -1063,11 +1111,22 @@ function dismissVolTip(){ DB.volTipAck=true; save(); document.getElementById("vo
 window.addEventListener("resize",()=>{ if(!sess) drawGraph(null,false); renderStats(); });
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&wakeLock===null&&sess&&!sess.done) lockScreen(); });
 
+// Resuming from background: re-anchor the frame clock so the hidden gap isn't
+// counted, and make sure the tick loop is running again.
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible" && sess && !sess.done){
+    sess.lastFrame=performance.now();
+    cancelAnimationFrame(sess.raf);
+    sess.raf=requestAnimationFrame(tick);
+  }
+});
 (function init(){
   buildSegs(); bindSettings(); fillSettings();
   if(!DB.disclaimerAck) document.getElementById("disc").style.display="flex";
   if(DB.volTipAck) document.getElementById("volTip").style.display="none";
   drawGraph(null,false); renderCal(); renderStats();
+  // Preload the loop so Start is instant and it's cached for offline reopens.
+  try{ const pl=ensurePlayer(); pl.src=COLOR_SRC[DB.settings.color]||COLOR_SRC.green; }catch(e){}
 })();
 </script>
 </body>
