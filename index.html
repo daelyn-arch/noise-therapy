@@ -122,9 +122,13 @@
 </head>
 <body>
 
-<!-- Looping noise source. A media element (not Web Audio) so iOS keeps it
-     playing in the background / on the lock screen. -->
+<!-- Foreground audio source — routed through Web Audio so the GainNode controls
+     the ramp (iOS ignores HTMLMediaElement.volume). -->
 <audio id="player" loop playsinline webkit-playsinline preload="auto"></audio>
+<!-- Background audio source — a SEPARATE element that iOS will keep playing
+     when the app is backgrounded. Plays a pre-attenuated copy of the loop so its
+     loudness matches the foreground hold level (iOS won't let us modulate it). -->
+<audio id="bgPlayer" loop playsinline webkit-playsinline preload="auto" muted></audio>
 
 <!-- ========== FIRST-RUN DISCLAIMER ========== -->
 <div class="disc" id="disc" style="display:none">
@@ -416,9 +420,15 @@ const fmtTime=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+":"+String
 let actx=null, buffers={}, src=null, gainNode=null, calSrc=null, calGain=null;
 // Recorded loop files per color (media-element playback, background-capable).
 const COLOR_SRC={ green:"green-loop.mp3" };
-let player=null;        // <audio> element — the primary engine
+let player=null;        // foreground <audio> — routed through Web Audio for gain control
 let elSrcNode=null;     // MediaElementAudioSourceNode (one per element, cached)
 let useSynth=false;     // true only if the file can't load (Web Audio fallback)
+// --- background-audio handoff state ---
+let bgPlayer=null;      // background <audio> — plays direct (iOS background-eligible)
+let loopBuffer=null;    // decoded AudioBuffer of the loop (for offline re-rendering)
+let bgBlobUrl=null;     // current pre-attenuated WAV blob URL fed to bgPlayer
+let bgBakedFor=-1;      // last gain we baked the bg blob for (dedupes re-bakes)
+let bgPrimed=false;     // bgPlayer has been .play()'d in a user gesture at least once
 function ensurePlayer(){
   if(player) return player;
   player=document.getElementById("player");
@@ -431,6 +441,77 @@ function ensurePlayer(){
     if(sess&&!sess.done) stopNow();
   });
   return player;
+}
+function ensureBgPlayer(){
+  if(bgPlayer) return bgPlayer;
+  bgPlayer=document.getElementById("bgPlayer");
+  if(bgPlayer){
+    bgPlayer.loop=true; bgPlayer.preload="auto"; bgPlayer.muted=true;
+    bgPlayer.setAttribute("playsinline","");
+    bgPlayer.setAttribute("webkit-playsinline","");
+  }
+  return bgPlayer;
+}
+// Encode an AudioBuffer as a 16-bit PCM WAV blob. Used to ship attenuated loop
+// audio into the bg <audio> element (the only kind of source iOS will keep
+// playing in the background, since it ignores HTMLMediaElement.volume).
+function audioBufferToWav(buf){
+  const nc=buf.numberOfChannels, sr=buf.sampleRate, len=buf.length;
+  const ds=len*nc*2, ab=new ArrayBuffer(44+ds), v=new DataView(ab);
+  let p=0;
+  const ws=s=>{for(let i=0;i<s.length;i++) v.setUint8(p++,s.charCodeAt(i));};
+  const w32=n=>{v.setUint32(p,n,true);p+=4;};
+  const w16=n=>{v.setUint16(p,n,true);p+=2;};
+  ws("RIFF"); w32(36+ds); ws("WAVE");
+  ws("fmt "); w32(16); w16(1); w16(nc); w32(sr); w32(sr*nc*2); w16(nc*2); w16(16);
+  ws("data"); w32(ds);
+  const ch=[]; for(let c=0;c<nc;c++) ch.push(buf.getChannelData(c));
+  for(let i=0;i<len;i++){
+    for(let c=0;c<nc;c++){
+      const s=Math.max(-1,Math.min(1,ch[c][i]));
+      v.setInt16(p,(s*0x7fff)|0,true); p+=2;
+    }
+  }
+  return new Blob([ab],{type:"audio/wav"});
+}
+async function getLoopBuffer(){
+  if(loopBuffer) return loopBuffer;
+  const ctx=ensureCtx();
+  const resp=await fetch("green-loop.mp3",{cache:"force-cache"});
+  if(!resp.ok) throw new Error("loop fetch "+resp.status);
+  const ab=await resp.arrayBuffer();
+  loopBuffer=await ctx.decodeAudioData(ab);
+  return loopBuffer;
+}
+// Render the loop attenuated by `gain` into a WAV blob URL, ready for bgPlayer.
+async function bakeBgBlob(gain){
+  const buf=await getLoopBuffer();
+  const off=new OfflineAudioContext(buf.numberOfChannels,buf.length,buf.sampleRate);
+  const s=off.createBufferSource(); s.buffer=buf;
+  const g=off.createGain(); g.gain.value=gain;
+  s.connect(g).connect(off.destination); s.start();
+  const rendered=await off.startRendering();
+  return URL.createObjectURL(audioBufferToWav(rendered));
+}
+// Rebake the bg blob if the target level has changed enough to matter.
+async function refreshBgForTarget(){
+  const g=gainFromPct(DB.settings.targetPct);
+  if(Math.abs(g-bgBakedFor)<0.002) return;
+  try{
+    const url=await bakeBgBlob(g);
+    if(bgBlobUrl) URL.revokeObjectURL(bgBlobUrl);
+    bgBlobUrl=url; bgBakedFor=g;
+    const bg=ensureBgPlayer(); if(!bg) return;
+    bg.src=url; bg.muted=true;
+    if(bgPrimed){ try{ await bg.play(); }catch(e){} }
+  }catch(e){}
+}
+// Must run SYNCHRONOUSLY in a user gesture so iOS grants bgPlayer playback.
+function primeBgPlayer(){
+  const bg=ensureBgPlayer(); if(!bg) return;
+  if(!bg.src) bg.src=bgBlobUrl||COLOR_SRC.green;
+  bg.muted=true;
+  bg.play().then(()=>{ bgPrimed=true; },()=>{});
 }
 function ensureCtx(){
   if(!actx){
@@ -491,6 +572,9 @@ async function startNoise(color){
       const url=new URL(file,location.href).href;
       if(pl.src!==url) pl.src=file;
       pl.loop=true; pl.volume=1; pl._internalPause=false;   // el.volume ignored by iOS — gain is via GainNode
+      // Prime the BACKGROUND player in the same user gesture — iOS will only
+      // play it later (when we hand off on backgrounding) if it was started here.
+      primeBgPlayer();
       const ctx=ensureCtx();
       // createMediaElementSource can only be called ONCE per element — cache it.
       if(!elSrcNode){
@@ -504,6 +588,7 @@ async function startNoise(color){
       await pl.play();
       useSynth=false;
       if("mediaSession" in navigator) navigator.mediaSession.playbackState="playing";
+      refreshBgForTarget();   // make sure the bg blob is baked at the current target
       return;
     }catch(e){ /* fall through to synth */ }
   }
@@ -516,6 +601,7 @@ async function startNoise(color){
 }
 function stopNoise(){
   if(player){ player._internalPause=true; try{player.pause();}catch(e){} }
+  if(bgPlayer){ try{bgPlayer.pause();}catch(e){} bgPlayer.muted=true; }
   if(gainNode){ try{gainNode.disconnect();}catch(e){} }
   if(src){ try{src.stop();}catch(e){} }
   src=null; gainNode=null;
@@ -702,6 +788,9 @@ function manualStop(){
   sess.stopped=true; sess.stopAt=tNow; sess.stopPct=cur;
   sess.coolEnd=tNow+Math.max(1,DB.settings.cooldown);
   setState("cooling down");
+  // bg is baked at target level — louder than cooldown — so silence it.
+  // Cooldown plays foreground-only; backgrounding mid-cooldown stops audio.
+  if(bgPlayer){ try{bgPlayer.pause();}catch(e){} bgPlayer.muted=true; }
 }
 // Immediate stop: cut audio and end the session right now.
 function stopNow(){
@@ -829,6 +918,7 @@ function bindSettings(){
       save(); updateEnvLabels();
       if(liveTarget) startTargetTransition(fromLevel);
       else if(!sess) drawGraph(null,false);
+      if(k==="targetPct") refreshBgForTarget();   // rebake bg blob at new target
     });
   });
   document.querySelectorAll("#colorRow button").forEach(b=>{
@@ -1128,16 +1218,26 @@ function dismissVolTip(){ DB.volTipAck=true; save(); document.getElementById("vo
 window.addEventListener("resize",()=>{ if(!sess) drawGraph(null,false); renderStats(); });
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&wakeLock===null&&sess&&!sess.done) lockScreen(); });
 
-// Resuming from background: re-anchor the frame clock so the hidden gap isn't
-// counted, restart the tick loop, and recover the audio context / element
-// (iOS may have suspended one or both while we were backgrounded).
+// Going to background → hand off audio to bgPlayer (which iOS keeps playing).
+// Returning to foreground → mute bgPlayer, recover the Web Audio path, restart tick.
 document.addEventListener("visibilitychange",()=>{
-  if(document.visibilityState==="visible" && sess && !sess.done){
-    sess.lastFrame=performance.now();
-    cancelAnimationFrame(sess.raf);
-    sess.raf=requestAnimationFrame(tick);
+  if(document.visibilityState==="hidden"){
+    if(sess && !sess.done && !sess.stopped){
+      const bg=ensureBgPlayer();
+      if(bg && bg.src){
+        bg.muted=false;
+        bg.play().catch(()=>{});
+      }
+      // Mute the foreground path so there's no overlap before iOS suspends it.
+      if(gainNode){ try{ gainNode.gain.cancelScheduledValues(actx.currentTime); gainNode.gain.value=0; }catch(e){} }
+    }
+  } else if(document.visibilityState==="visible" && sess && !sess.done){
+    if(bgPlayer) bgPlayer.muted=true;
     if(actx && actx.state==="suspended"){ try{ actx.resume(); }catch(e){} }
     if(player && player.paused && !sess.stopped){ player._internalPause=true; player.play().catch(()=>{}); }
+    sess.lastFrame=performance.now();
+    cancelAnimationFrame(sess.raf);
+    sess.raf=requestAnimationFrame(tick);   // next tick restores gain via setVolume(modelLevel(t))
   }
 });
 (function init(){
@@ -1147,6 +1247,8 @@ document.addEventListener("visibilitychange",()=>{
   drawGraph(null,false); renderCal(); renderStats();
   // Preload the loop so Start is instant and it's cached for offline reopens.
   try{ const pl=ensurePlayer(); pl.src=COLOR_SRC[DB.settings.color]||COLOR_SRC.green; }catch(e){}
+  // Pre-bake the background blob (no user gesture needed for OfflineAudioContext).
+  refreshBgForTarget();
 })();
 </script>
 </body>
