@@ -417,6 +417,7 @@ let actx=null, buffers={}, src=null, gainNode=null, calSrc=null, calGain=null;
 // Recorded loop files per color (media-element playback, background-capable).
 const COLOR_SRC={ green:"green-loop.mp3" };
 let player=null;        // <audio> element — the primary engine
+let elSrcNode=null;     // MediaElementAudioSourceNode (one per element, cached)
 let useSynth=false;     // true only if the file can't load (Web Audio fallback)
 function ensurePlayer(){
   if(player) return player;
@@ -478,9 +479,10 @@ async function buildSynthGreen(){
   const mk=arr=>{ const b=ctx.createBuffer(1,len,sr); rmsNormalize(arr); b.getChannelData(0).set(arr); b.dataArr=arr; return b; };
   buffers={ green:mk(green) };
 }
-// Begin playback for `color`. Prefer the media element (background-capable); fall
-// back to the Web Audio synth if the file won't play. Must be called from a user
-// gesture (the Start button) so iOS grants playback.
+// Begin playback for `color`. Prefer the media element (background-capable) routed
+// through Web Audio so we can modulate volume (iOS silently ignores <audio>.volume).
+// Falls back to the Web Audio synth if the loop file won't play. Must be called from
+// a user gesture (the Start button) so iOS grants playback.
 async function startNoise(color){
   const file=COLOR_SRC[color];
   if(file){
@@ -488,7 +490,17 @@ async function startNoise(color){
       const pl=ensurePlayer();
       const url=new URL(file,location.href).href;
       if(pl.src!==url) pl.src=file;
-      pl.loop=true; pl.volume=0; pl._internalPause=false;
+      pl.loop=true; pl.volume=1; pl._internalPause=false;   // el.volume ignored by iOS — gain is via GainNode
+      const ctx=ensureCtx();
+      // createMediaElementSource can only be called ONCE per element — cache it.
+      if(!elSrcNode){
+        try{ elSrcNode=ctx.createMediaElementSource(pl); }catch(e){ elSrcNode=null; }
+      }
+      gainNode=ctx.createGain(); gainNode.gain.value=0;
+      if(elSrcNode){
+        try{ elSrcNode.disconnect(); }catch(e){}
+        elSrcNode.connect(gainNode).connect(ctx.destination);
+      }
       await pl.play();
       useSynth=false;
       if("mediaSession" in navigator) navigator.mediaSession.playbackState="playing";
@@ -504,14 +516,19 @@ async function startNoise(color){
 }
 function stopNoise(){
   if(player){ player._internalPause=true; try{player.pause();}catch(e){} }
-  if(src){ try{src.stop();}catch(e){} } src=null; gainNode=null;
+  if(gainNode){ try{gainNode.disconnect();}catch(e){} }
+  if(src){ try{src.stop();}catch(e){} }
+  src=null; gainNode=null;
   if("mediaSession" in navigator) navigator.mediaSession.playbackState="none";
 }
-// Set the current output level (0–100% → perceptual gain), on whichever engine is live.
+// Set the current output level (0–100% → perceptual gain) via the GainNode in both
+// engine paths. iOS ignores HTMLMediaElement.volume, so the GainNode is essential.
 function setVolume(pct){
   const g=Math.max(0,Math.min(1,gainFromPct(pct)));
-  if(useSynth){ if(gainNode){ try{gainNode.gain.setTargetAtTime(g,actx.currentTime,0.05);}catch(e){ gainNode.gain.value=g; } } }
-  else if(player){ player.volume=g; }
+  if(gainNode){
+    try{ gainNode.gain.setTargetAtTime(g, actx.currentTime, 0.05); }
+    catch(e){ try{ gainNode.gain.value=g; }catch(e2){} }
+  }
 }
 // Swap the noise source live (mid-session color change).
 function swapNoise(color){
@@ -1112,12 +1129,15 @@ window.addEventListener("resize",()=>{ if(!sess) drawGraph(null,false); renderSt
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&wakeLock===null&&sess&&!sess.done) lockScreen(); });
 
 // Resuming from background: re-anchor the frame clock so the hidden gap isn't
-// counted, and make sure the tick loop is running again.
+// counted, restart the tick loop, and recover the audio context / element
+// (iOS may have suspended one or both while we were backgrounded).
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState==="visible" && sess && !sess.done){
     sess.lastFrame=performance.now();
     cancelAnimationFrame(sess.raf);
     sess.raf=requestAnimationFrame(tick);
+    if(actx && actx.state==="suspended"){ try{ actx.resume(); }catch(e){} }
+    if(player && player.paused && !sess.stopped){ player._internalPause=true; player.play().catch(()=>{}); }
   }
 });
 (function init(){
