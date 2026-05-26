@@ -781,9 +781,10 @@ function manualStop(){
   sess.stopped=true; sess.stopAt=tNow; sess.stopPct=cur;
   sess.coolEnd=tNow+Math.max(1,DB.settings.cooldown);
   setState("cooling down");
-  // bg is baked at target level — louder than cooldown — so silence it.
-  // Cooldown plays foreground-only; backgrounding mid-cooldown stops audio.
-  if(bgPlayer){ try{bgPlayer.pause();}catch(e){} bgPlayer.muted=true; }
+  // bg is baked at target level — louder than cooldown — so silence it. Don't
+  // pause it: we keep it playing (muted) so its gesture grant stays alive in case
+  // anything else needs it. Tick will re-confirm muted via exitHoldAudio next frame.
+  if(bgPlayer) bgPlayer.muted=true;
 }
 // Immediate stop: cut audio and end the session right now.
 function stopNow(){
@@ -800,7 +801,20 @@ function tick(){
   sess.tElapsed+=dt;
   const t=sess.tElapsed;
   const lvl=modelLevel(t);
-  setVolume(lvl);
+  // Hand off the AUDIBLE source between phases. We need bgPlayer to be audibly
+  // playing in foreground during hold — otherwise iOS treats a muted element as
+  // inactive and won't keep it alive across the background transition.
+  const inHold=isHoldPhase()&&!useSynth;
+  if(inHold!==!!sess.usingBg){
+    if(inHold) enterHoldAudio(); else exitHoldAudio();
+    sess.usingBg=inHold;
+  }
+  if(sess.usingBg){
+    // Silence the foreground BufferSource — bgPlayer provides the audio now.
+    if(gainNode){ try{ gainNode.gain.cancelScheduledValues(actx.currentTime); gainNode.gain.value=0; }catch(e){} }
+  } else {
+    setVolume(lvl);
+  }
   if(lvl>sess.peakPct) sess.peakPct=lvl;
   if(lvl>=DB.settings.targetPct-0.5) sess.timeAtTarget+=dt;
   sess.actualPts.push([t,lvl]);
@@ -1220,22 +1234,28 @@ function isHoldPhase(){
   const s=DB.settings, t=sess.tElapsed;
   return t>=s.rampUp && t<s.rampUp+s.hold;
 }
-// Going to background → if (and only if) we're in hold, hand off to bgPlayer.
-// During ramp / cooldown, bg stays muted → silent in background. The session clock
-// pauses while hidden anyway, so the phase can't change behind the user's back.
+// Hold entry: unmute bgPlayer so it becomes the audible source (and iOS sees it
+// actively playing — required to keep it alive across the background transition).
+// The bg blob is pre-baked at gainFromPct(targetPct), so loudness matches what
+// the foreground BufferSource was producing right before the swap.
+function enterHoldAudio(){
+  if(bgPlayer) bgPlayer.muted=false;
+}
+// Hold exit: re-mute bgPlayer so only the foreground (gain-controlled) path is heard.
+function exitHoldAudio(){
+  if(bgPlayer) bgPlayer.muted=true;
+}
+// Visibility handling. The audible source was already swapped to bgPlayer at hold
+// entry (in tick), so going hidden during hold needs no extra action — iOS keeps
+// the actively-playing bgPlayer alive. During ramp/cooldown the bgPlayer was muted,
+// so backgrounding is silent (safe). On return, the next tick restores gain.
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState==="hidden"){
-    if(isHoldPhase()){
-      const bg=ensureBgPlayer();
-      if(bg && bg.src){
-        bg.muted=false;
-        bg.play().catch(()=>{});
-      }
-    }
-    // Mute the foreground path so there's no overlap before iOS suspends it.
-    if(gainNode){ try{ gainNode.gain.cancelScheduledValues(actx.currentTime); gainNode.gain.value=0; }catch(e){} }
+    // Defense in depth: if we're NOT in hold, make absolutely sure bg is muted.
+    if(!isHoldPhase() && bgPlayer) bgPlayer.muted=true;
   } else if(document.visibilityState==="visible" && sess && !sess.done){
-    if(bgPlayer) bgPlayer.muted=true;
+    // Only re-mute bg if we're no longer in hold; otherwise leave it audible.
+    if(!isHoldPhase() && bgPlayer) bgPlayer.muted=true;
     if(actx && actx.state==="suspended"){ try{ actx.resume(); }catch(e){} }
     sess.lastFrame=performance.now();
     cancelAnimationFrame(sess.raf);
