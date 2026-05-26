@@ -418,6 +418,7 @@ const fmtTime=s=>{s=Math.max(0,Math.round(s));return Math.floor(s/60)+":"+String
    AUDIO ENGINE
 ============================================================ */
 let actx=null, buffers={}, src=null, gainNode=null, calSrc=null, calGain=null;
+let audioStartTime=0;   // actx.currentTime at the moment src.start() was called
 // Recorded loop files per color (media-element playback, background-capable).
 const COLOR_SRC={ green:"green-loop.mp3" };
 let player=null;        // foreground <audio> — routed through Web Audio for gain control
@@ -445,11 +446,23 @@ function ensurePlayer(){
 function ensureBgPlayer(){
   if(bgPlayer) return bgPlayer;
   bgPlayer=document.getElementById("bgPlayer");
-  if(bgPlayer){
-    bgPlayer.loop=true; bgPlayer.preload="auto"; bgPlayer.muted=true;
-    bgPlayer.setAttribute("playsinline","");
-    bgPlayer.setAttribute("webkit-playsinline","");
-  }
+  if(!bgPlayer) return null;
+  bgPlayer.loop=true; bgPlayer.preload="auto"; bgPlayer.muted=true;
+  bgPlayer.setAttribute("playsinline","");
+  bgPlayer.setAttribute("webkit-playsinline","");
+  // iOS Safari occasionally ignores <audio loop> on blob-backed media — restart
+  // explicitly when the file naturally ends so the hold doesn't fall silent.
+  bgPlayer.addEventListener("ended",()=>{
+    if(sess && !sess.done && sess.usingBg){
+      try{ bgPlayer.currentTime=0; bgPlayer.play().catch(()=>{}); }catch(e){}
+    }
+  });
+  // Recover from involuntary pauses (interruption, route change, system intervention).
+  bgPlayer.addEventListener("pause",()=>{
+    if(sess && !sess.done && sess.usingBg && document.visibilityState!=="hidden"){
+      try{ bgPlayer.play().catch(()=>{}); }catch(e){}
+    }
+  });
   return bgPlayer;
 }
 // Encode an AudioBuffer as a 16-bit PCM WAV blob. Used to ship attenuated loop
@@ -516,6 +529,14 @@ function primeBgPlayer(){
 function ensureCtx(){
   if(!actx){
     actx=new (window.AudioContext||window.webkitAudioContext)();
+    // iOS uses "interrupted" for audio session interruptions (calls, alarms, route
+    // changes). Whenever the context drops out of "running" while we're foregrounded
+    // and still in a session, try to bring it back so audio doesn't go silent.
+    actx.addEventListener("statechange",()=>{
+      if(actx.state!=="running" && sess && !sess.done && document.visibilityState!=="hidden"){
+        try{ actx.resume().catch(()=>{}); }catch(e){}
+      }
+    });
   }
   if(actx.state==="suspended") actx.resume();
   return actx;
@@ -578,7 +599,8 @@ async function startNoise(color){
       // and produces an audible cut at every loop point — that's what was happening.
       src=ctx.createBufferSource(); src.buffer=buf; src.loop=true;
       gainNode=ctx.createGain(); gainNode.gain.value=0;
-      src.connect(gainNode).connect(ctx.destination); src.start();
+      src.connect(gainNode).connect(ctx.destination);
+      audioStartTime=ctx.currentTime; src.start();
       useSynth=false;
       if("mediaSession" in navigator) navigator.mediaSession.playbackState="playing";
       refreshBgForTarget();   // make sure the bg blob is baked at the current target
@@ -590,7 +612,8 @@ async function startNoise(color){
   if(!buffers.green) await buildSynthGreen();
   src=actx.createBufferSource(); src.buffer=buffers[color]||buffers.green; src.loop=true;
   gainNode=actx.createGain(); gainNode.gain.value=0;
-  src.connect(gainNode).connect(actx.destination); src.start();
+  src.connect(gainNode).connect(actx.destination);
+  audioStartTime=actx.currentTime; src.start();
 }
 function stopNoise(){
   if(player){ player._internalPause=true; try{player.pause();}catch(e){} }
@@ -810,8 +833,10 @@ function tick(){
     sess.usingBg=inHold;
   }
   if(sess.usingBg){
-    // Silence the foreground BufferSource — bgPlayer provides the audio now.
-    if(gainNode){ try{ gainNode.gain.cancelScheduledValues(actx.currentTime); gainNode.gain.value=0; }catch(e){} }
+    // Silence the foreground BufferSource smoothly — bgPlayer provides audio now.
+    // setTargetAtTime gives a ~75ms exponential fade rather than an instant cut,
+    // hiding any tiny phase/gain mismatch between the two audio paths.
+    if(gainNode){ try{ gainNode.gain.setTargetAtTime(0, actx.currentTime, 0.025); }catch(e){} }
   } else {
     setVolume(lvl);
   }
@@ -1234,16 +1259,37 @@ function isHoldPhase(){
   const s=DB.settings, t=sess.tElapsed;
   return t>=s.rampUp && t<s.rampUp+s.hold;
 }
-// Hold entry: unmute bgPlayer so it becomes the audible source (and iOS sees it
-// actively playing — required to keep it alive across the background transition).
-// The bg blob is pre-baked at gainFromPct(targetPct), so loudness matches what
-// the foreground BufferSource was producing right before the swap.
+// Hold entry: seek bgPlayer to the SAME loop position the BufferSource is at, then
+// unmute. Both play the same waveform (bg blob is the loop attenuated to target gain,
+// fg gain is also at target), so phase-aligned samples + matched amplitude = no click.
 function enterHoldAudio(){
-  if(bgPlayer) bgPlayer.muted=false;
+  if(!bgPlayer) return;
+  if(loopBuffer && actx){
+    try{
+      const pos=(actx.currentTime-audioStartTime)%loopBuffer.duration;
+      bgPlayer.currentTime=pos;
+    }catch(e){}
+  }
+  bgPlayer.muted=false;
+  // Belt-and-braces in case iOS paused it at some point (loop quirk, interruption…).
+  if(bgPlayer.paused){ try{ bgPlayer.play().catch(()=>{}); }catch(e){} }
 }
-// Hold exit: re-mute bgPlayer so only the foreground (gain-controlled) path is heard.
+// Hold exit: rebuild the BufferSource starting at bgPlayer's current position, so
+// the foreground audio picks up exactly where bg left off. Mute bg AFTER the new
+// fg source is in place so there's no audible gap.
 function exitHoldAudio(){
-  if(bgPlayer) bgPlayer.muted=true;
+  if(!bgPlayer) return;
+  if(loopBuffer && actx && src && gainNode){
+    try{
+      const pos=bgPlayer.currentTime%loopBuffer.duration;
+      const nsrc=actx.createBufferSource(); nsrc.buffer=loopBuffer; nsrc.loop=true;
+      nsrc.connect(gainNode); nsrc.start(0,pos);
+      const old=src; src=nsrc;
+      audioStartTime=actx.currentTime-pos;
+      try{ old.stop(actx.currentTime+0.02); }catch(e){}
+    }catch(e){}
+  }
+  bgPlayer.muted=true;
 }
 // Visibility handling. The audible source was already swapped to bgPlayer at hold
 // entry (in tick), so going hidden during hold needs no extra action — iOS keeps
