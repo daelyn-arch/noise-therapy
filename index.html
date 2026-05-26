@@ -129,6 +129,10 @@
      when the app is backgrounded. Plays a pre-attenuated copy of the loop so its
      loudness matches the foreground hold level (iOS won't let us modulate it). -->
 <audio id="bgPlayer" loop playsinline webkit-playsinline preload="auto" muted></audio>
+<!-- Silent keep-alive — plays continuously and audibly (but silent waveform)
+     throughout the session so iOS treats audio as active and doesn't suspend the
+     bgPlayer when it later unmutes on background. -->
+<audio id="bgKeepAlive" loop playsinline webkit-playsinline preload="auto"></audio>
 
 <!-- ========== FIRST-RUN DISCLAIMER ========== -->
 <div class="disc" id="disc" style="display:none">
@@ -426,6 +430,8 @@ let elSrcNode=null;     // MediaElementAudioSourceNode (one per element, cached)
 let useSynth=false;     // true only if the file can't load (Web Audio fallback)
 // --- background-audio handoff state ---
 let bgPlayer=null;      // background <audio> — plays direct (iOS background-eligible)
+let bgKeepAlive=null;   // silent, always-audible keep-alive so iOS keeps audio active
+let silentBlobUrl=null; // tiny silent WAV used as the keep-alive source
 let loopBuffer=null;    // decoded AudioBuffer of the loop (for offline re-rendering)
 let bgBlobUrl=null;     // current pre-attenuated WAV blob URL fed to bgPlayer
 let bgBakedFor=-1;      // last gain we baked the bg blob for (dedupes re-bakes)
@@ -519,8 +525,41 @@ async function refreshBgForTarget(){
     if(bgPrimed){ try{ await bg.play(); }catch(e){} }
   }catch(e){}
 }
-// Must run SYNCHRONOUSLY in a user gesture so iOS grants bgPlayer playback.
+// Tiny 1-second silent WAV — used as the keep-alive source so iOS keeps the
+// audio session active even while bgPlayer is muted in the foreground.
+function makeSilentBlobUrl(){
+  if(silentBlobUrl) return silentBlobUrl;
+  const sr=8000, len=sr;            // 1 s mono 8 kHz — ~16 KB total
+  const ab=new ArrayBuffer(44+len*2), v=new DataView(ab);
+  let p=0;
+  const ws=s=>{for(let i=0;i<s.length;i++) v.setUint8(p++,s.charCodeAt(i));};
+  ws("RIFF"); v.setUint32(p,36+len*2,true); p+=4; ws("WAVE");
+  ws("fmt "); v.setUint32(p,16,true); p+=4; v.setUint16(p,1,true); p+=2;
+  v.setUint16(p,1,true); p+=2; v.setUint32(p,sr,true); p+=4;
+  v.setUint32(p,sr*2,true); p+=4; v.setUint16(p,2,true); p+=2; v.setUint16(p,16,true); p+=2;
+  ws("data"); v.setUint32(p,len*2,true); p+=4;
+  // sample bytes are already zero in the ArrayBuffer → silence
+  silentBlobUrl=URL.createObjectURL(new Blob([ab],{type:"audio/wav"}));
+  return silentBlobUrl;
+}
+function ensureBgKeepAlive(){
+  if(bgKeepAlive) return bgKeepAlive;
+  bgKeepAlive=document.getElementById("bgKeepAlive");
+  if(!bgKeepAlive) return null;
+  bgKeepAlive.loop=true; bgKeepAlive.preload="auto"; bgKeepAlive.muted=false;
+  bgKeepAlive.setAttribute("playsinline","");
+  bgKeepAlive.setAttribute("webkit-playsinline","");
+  if(!bgKeepAlive.src) bgKeepAlive.src=makeSilentBlobUrl();
+  bgKeepAlive.addEventListener("ended",()=>{
+    try{ bgKeepAlive.currentTime=0; bgKeepAlive.play().catch(()=>{}); }catch(e){}
+  });
+  return bgKeepAlive;
+}
+// Must run SYNCHRONOUSLY in a user gesture so iOS grants playback for both
+// the keep-alive element AND bgPlayer (which is muted now but unmuted later).
 function primeBgPlayer(){
+  const ka=ensureBgKeepAlive();
+  if(ka){ try{ ka.play().catch(()=>{}); }catch(e){} }
   const bg=ensureBgPlayer(); if(!bg) return;
   if(!bg.src) bg.src=bgBlobUrl||COLOR_SRC.green;
   bg.muted=true;
@@ -804,10 +843,9 @@ function manualStop(){
   sess.stopped=true; sess.stopAt=tNow; sess.stopPct=cur;
   sess.coolEnd=tNow+Math.max(1,DB.settings.cooldown);
   setState("cooling down");
-  // bg is baked at target level — louder than cooldown — so silence it. Don't
-  // pause it: we keep it playing (muted) so its gesture grant stays alive in case
-  // anything else needs it. Tick will re-confirm muted via exitHoldAudio next frame.
-  if(bgPlayer) bgPlayer.muted=true;
+  // No audio swap needed: foreground stays on Web Audio, gain follows modelLevel.
+  // bgPlayer was already muted (we're foregrounded), and visibilitychange enforces
+  // muted during non-hold phases for safety if the user backgrounds mid-cooldown.
 }
 // Immediate stop: cut audio and end the session right now.
 function stopNow(){
@@ -824,22 +862,9 @@ function tick(){
   sess.tElapsed+=dt;
   const t=sess.tElapsed;
   const lvl=modelLevel(t);
-  // Hand off the AUDIBLE source between phases. We need bgPlayer to be audibly
-  // playing in foreground during hold — otherwise iOS treats a muted element as
-  // inactive and won't keep it alive across the background transition.
-  const inHold=isHoldPhase()&&!useSynth;
-  if(inHold!==!!sess.usingBg){
-    if(inHold) enterHoldAudio(); else exitHoldAudio();
-    sess.usingBg=inHold;
-  }
-  if(sess.usingBg){
-    // Silence the foreground BufferSource smoothly — bgPlayer provides audio now.
-    // setTargetAtTime gives a ~75ms exponential fade rather than an instant cut,
-    // hiding any tiny phase/gain mismatch between the two audio paths.
-    if(gainNode){ try{ gainNode.gain.setTargetAtTime(0, actx.currentTime, 0.025); }catch(e){} }
-  } else {
-    setVolume(lvl);
-  }
+  // Foreground audio is entirely Web Audio — gapless ramp, smooth phase transitions,
+  // no audio-path swaps to click on. bgPlayer is reserved for the background hand-off.
+  setVolume(lvl);
   if(lvl>sess.peakPct) sess.peakPct=lvl;
   if(lvl>=DB.settings.targetPct-0.5) sess.timeAtTarget+=dt;
   sess.actualPts.push([t,lvl]);
@@ -1259,53 +1284,35 @@ function isHoldPhase(){
   const s=DB.settings, t=sess.tElapsed;
   return t>=s.rampUp && t<s.rampUp+s.hold;
 }
-// Hold entry: seek bgPlayer to the SAME loop position the BufferSource is at, then
-// unmute. Both play the same waveform (bg blob is the loop attenuated to target gain,
-// fg gain is also at target), so phase-aligned samples + matched amplitude = no click.
-function enterHoldAudio(){
-  if(!bgPlayer) return;
-  if(loopBuffer && actx){
-    try{
-      const pos=(actx.currentTime-audioStartTime)%loopBuffer.duration;
-      bgPlayer.currentTime=pos;
-    }catch(e){}
-  }
-  bgPlayer.muted=false;
-  // Belt-and-braces in case iOS paused it at some point (loop quirk, interruption…).
-  if(bgPlayer.paused){ try{ bgPlayer.play().catch(()=>{}); }catch(e){} }
-}
-// Hold exit: rebuild the BufferSource starting at bgPlayer's current position, so
-// the foreground audio picks up exactly where bg left off. Mute bg AFTER the new
-// fg source is in place so there's no audible gap.
-function exitHoldAudio(){
-  if(!bgPlayer) return;
-  if(loopBuffer && actx && src && gainNode){
-    try{
-      const pos=bgPlayer.currentTime%loopBuffer.duration;
-      const nsrc=actx.createBufferSource(); nsrc.buffer=loopBuffer; nsrc.loop=true;
-      nsrc.connect(gainNode); nsrc.start(0,pos);
-      const old=src; src=nsrc;
-      audioStartTime=actx.currentTime-pos;
-      try{ old.stop(actx.currentTime+0.02); }catch(e){}
-    }catch(e){}
-  }
-  bgPlayer.muted=true;
-}
-// Visibility handling. The audible source was already swapped to bgPlayer at hold
-// entry (in tick), so going hidden during hold needs no extra action — iOS keeps
-// the actively-playing bgPlayer alive. During ramp/cooldown the bgPlayer was muted,
-// so backgrounding is silent (safe). On return, the next tick restores gain.
+// Visibility handling. Foreground audio is pure Web Audio (no swaps). On
+// backgrounding during hold we phase-align bgPlayer to the current loop position
+// and unmute it; iOS keeps the audio session alive via the silent keep-alive
+// element, so bgPlayer continues playing in background. During ramp/cooldown,
+// bgPlayer stays muted = silent in background (safe — bg is baked at target,
+// which would be louder than the current ramp/cooldown level).
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState==="hidden"){
-    // Defense in depth: if we're NOT in hold, make absolutely sure bg is muted.
-    if(!isHoldPhase() && bgPlayer) bgPlayer.muted=true;
+    if(isHoldPhase() && bgPlayer && bgPlayer.src){
+      // Phase-align bgPlayer to where the BufferSource is right now, so the
+      // sample being played at the moment of the hand-off is continuous.
+      if(loopBuffer && actx){
+        try{
+          const pos=(actx.currentTime-audioStartTime)%loopBuffer.duration;
+          bgPlayer.currentTime=pos;
+        }catch(e){}
+      }
+      bgPlayer.muted=false;
+      try{ bgPlayer.play().catch(()=>{}); }catch(e){}
+    } else if(bgPlayer){
+      // Defense: ramp / cooldown — make sure bg is muted before iOS suspends us.
+      bgPlayer.muted=true;
+    }
   } else if(document.visibilityState==="visible" && sess && !sess.done){
-    // Only re-mute bg if we're no longer in hold; otherwise leave it audible.
-    if(!isHoldPhase() && bgPlayer) bgPlayer.muted=true;
+    if(bgPlayer) bgPlayer.muted=true;
     if(actx && actx.state==="suspended"){ try{ actx.resume(); }catch(e){} }
     sess.lastFrame=performance.now();
     cancelAnimationFrame(sess.raf);
-    sess.raf=requestAnimationFrame(tick);   // next tick restores gain via setVolume(modelLevel(t))
+    sess.raf=requestAnimationFrame(tick);
   }
 });
 (function init(){
