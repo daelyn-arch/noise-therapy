@@ -568,24 +568,17 @@ async function startNoise(color){
   const file=COLOR_SRC[color];
   if(file){
     try{
-      const pl=ensurePlayer();
-      const url=new URL(file,location.href).href;
-      if(pl.src!==url) pl.src=file;
-      pl.loop=true; pl.volume=1; pl._internalPause=false;   // el.volume ignored by iOS — gain is via GainNode
       // Prime the BACKGROUND player in the same user gesture — iOS will only
       // play it later (when we hand off on backgrounding) if it was started here.
       primeBgPlayer();
       const ctx=ensureCtx();
-      // createMediaElementSource can only be called ONCE per element — cache it.
-      if(!elSrcNode){
-        try{ elSrcNode=ctx.createMediaElementSource(pl); }catch(e){ elSrcNode=null; }
-      }
+      const buf=await getLoopBuffer();
+      // AudioBufferSourceNode.loop is TRULY gapless. Looping the file through the
+      // <audio> element instead inherits MP3 encoder padding/delay (~50ms each end)
+      // and produces an audible cut at every loop point — that's what was happening.
+      src=ctx.createBufferSource(); src.buffer=buf; src.loop=true;
       gainNode=ctx.createGain(); gainNode.gain.value=0;
-      if(elSrcNode){
-        try{ elSrcNode.disconnect(); }catch(e){}
-        elSrcNode.connect(gainNode).connect(ctx.destination);
-      }
-      await pl.play();
+      src.connect(gainNode).connect(ctx.destination); src.start();
       useSynth=false;
       if("mediaSession" in navigator) navigator.mediaSession.playbackState="playing";
       refreshBgForTarget();   // make sure the bg blob is baked at the current target
@@ -1218,23 +1211,32 @@ function dismissVolTip(){ DB.volTipAck=true; save(); document.getElementById("vo
 window.addEventListener("resize",()=>{ if(!sess) drawGraph(null,false); renderStats(); });
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&wakeLock===null&&sess&&!sess.done) lockScreen(); });
 
-// Going to background → hand off audio to bgPlayer (which iOS keeps playing).
-// Returning to foreground → mute bgPlayer, recover the Web Audio path, restart tick.
+// True only during the steady "hold" phase. Background audio is ONLY allowed here,
+// because the bg blob is baked at the target level — if we played it during ramp-up
+// or ramp-down, the loudness would jump up from where the user was hearing it.
+// Tinnitus safety: never let a hand-off make the sound LOUDER than what's playing.
+function isHoldPhase(){
+  if(!sess||sess.done||sess.stopped) return false;
+  const s=DB.settings, t=sess.tElapsed;
+  return t>=s.rampUp && t<s.rampUp+s.hold;
+}
+// Going to background → if (and only if) we're in hold, hand off to bgPlayer.
+// During ramp / cooldown, bg stays muted → silent in background. The session clock
+// pauses while hidden anyway, so the phase can't change behind the user's back.
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState==="hidden"){
-    if(sess && !sess.done && !sess.stopped){
+    if(isHoldPhase()){
       const bg=ensureBgPlayer();
       if(bg && bg.src){
         bg.muted=false;
         bg.play().catch(()=>{});
       }
-      // Mute the foreground path so there's no overlap before iOS suspends it.
-      if(gainNode){ try{ gainNode.gain.cancelScheduledValues(actx.currentTime); gainNode.gain.value=0; }catch(e){} }
     }
+    // Mute the foreground path so there's no overlap before iOS suspends it.
+    if(gainNode){ try{ gainNode.gain.cancelScheduledValues(actx.currentTime); gainNode.gain.value=0; }catch(e){} }
   } else if(document.visibilityState==="visible" && sess && !sess.done){
     if(bgPlayer) bgPlayer.muted=true;
     if(actx && actx.state==="suspended"){ try{ actx.resume(); }catch(e){} }
-    if(player && player.paused && !sess.stopped){ player._internalPause=true; player.play().catch(()=>{}); }
     sess.lastFrame=performance.now();
     cancelAnimationFrame(sess.raf);
     sess.raf=requestAnimationFrame(tick);   // next tick restores gain via setVolume(modelLevel(t))
